@@ -1,0 +1,70 @@
+# Initial STRIDE threat model
+
+## Status and scope
+
+This threat model covers the local authoritative game server and its initial
+TLS listener. The browser dashboard, cloud deployment and third-party network
+edges remain out of scope because they are not implemented.
+
+## Assets
+
+- Authoritative match state and outcomes.
+- Session credentials, session lifecycle, and any future signing keys.
+- Availability and bounded resource consumption of the server.
+- Detection evidence, replay data, and any pseudonymous player references.
+- Build/release integrity, dependency provenance, and CI credentials.
+
+## Trust boundaries
+
+1. **Client to server:** client bytes and timing cross a TLS 1.3 listener. The
+   service validates session credentials, framing, sequence and rate before
+   accepting movement intent.
+2. **Simulation to detector:** detector outputs can inform review/enforcement but
+   cannot mutate authoritative state or bypass deterministic validation.
+3. **Server to evidence store:** emitted events may contain sensitive behavioral
+   data; the store requires schema validation, bounded writes, access control,
+   retention, and integrity measures.
+4. **Source/dependency/CI to release:** repository changes, dependencies,
+   workflow inputs, and release credentials can affect distributed artifacts.
+
+## STRIDE analysis
+
+| Threat | Example risk | Planned controls and evidence |
+|---|---|---|
+| Spoofing | A caller impersonates another player or reuses an expired session. | TLS 1.3 protects transport. A bounded session store issues random credentials, binds them to server-supplied player IDs, expires them and supports revocation. The listener revalidates credentials for every frame and tick. Credential issuance and player provisioning remain outside the service. |
+| Tampering | A client submits a position, inventory, score, or hit result as trusted state. | Accept intent only; derive state and outcomes on the server; test state invariants and reject unauthorized fields. |
+| Repudiation | An enforcement action cannot be explained or reconstructed. | Versioned evidence records with correlation, reasons, detector versions, and replay; document hash-chain limitations and access controls. |
+| Information disclosure | Logs or exported evidence leak credentials or unnecessary personal data. | Never log secrets; minimize and pseudonymize fields; separate datasets; define access, retention, and deletion before collecting real telemetry. |
+| Denial of service | Oversized messages, floods, slow handshakes or unbounded connections exhaust resources. | Fixed-size frames, a 128-connection default cap, authentication and frame deadlines, per-connection rate limits, bounded latest-intent storage and bounded TLS shutdown. Defaults need workload testing. |
+| Elevation of privilege | A player invokes admin actions or CI/deployment credentials are over-scoped. | Explicit authorization roles, least-privilege workflows and service accounts, protected secrets, and negative authorization tests. Operator/admin surfaces are not yet implemented. |
+
+## Initial attack scenarios
+
+- Forged or impossible movement is submitted as an authoritative state update.
+- Duplicate or reordered actions are used to repeat resource-consuming operations.
+- A flood of malformed requests consumes parser or simulation capacity.
+- A weak behavioral signal causes an unjustified penalty against a legitimate
+  player, including someone using an accessibility tool or high-latency link.
+- Evidence is modified or retained longer than its documented purpose.
+- A compromised dependency or CI credential alters a release artifact.
+
+## Residual risks and open questions
+
+- The TLS 1.3 listener is tested locally with generated certificates. Production
+  certificate provisioning, key rotation, session issuance and workload-tuned
+  rate limits remain undefined.
+- Server-side checks cannot prove a client is honest; legitimate latency,
+  accessibility needs, and unusual play can resemble suspicious behavior.
+- A local hash chain alone cannot prevent a sufficiently privileged attacker
+  from rewriting the full evidence store.
+- Dense spatial queries can cost more than a linear scan. The checked-in
+  synthetic benchmark demonstrates this for a query that covers a dense cluster;
+  production entity caps and query budgets have not been defined.
+- Synthetic adversarial traces do not establish coverage of real cheats or
+  real-world false-positive rates.
+- The libFuzzer harness exists but was not run because Clang is unavailable in
+  the current Windows toolchain. Load, privacy and supply-chain validation
+  remain unperformed.
+
+Review and update this model at the protocol, telemetry, CI, and deployment
+milestones, when new assets or trust boundaries are introduced.

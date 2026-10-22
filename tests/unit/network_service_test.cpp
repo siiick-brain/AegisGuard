@@ -1,0 +1,430 @@
+#include "aegisguard/network_service.hpp"
+
+#include "aegisguard/protocol.hpp"
+
+#include <gtest/gtest.h>
+
+#include <openssl/evp.h>
+#include <openssl/rsa.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+
+#include <array>
+#include <atomic>
+#include <chrono>
+#include <cstdint>
+#include <future>
+#include <memory>
+#include <stdexcept>
+#include <span>
+#include <thread>
+
+namespace aegisguard {
+namespace {
+
+using namespace std::chrono_literals;
+
+struct PkeyDeleter {
+    void operator()(EVP_PKEY* key) const noexcept {
+        EVP_PKEY_free(key);
+    }
+};
+
+struct X509Deleter {
+    void operator()(X509* certificate) const noexcept {
+        X509_free(certificate);
+    }
+};
+
+std::unique_ptr<EVP_PKEY, PkeyDeleter> make_test_key() {
+    std::unique_ptr<EVP_PKEY_CTX, decltype(&EVP_PKEY_CTX_free)> context(
+        EVP_PKEY_CTX_new_id(EVP_PKEY_RSA, nullptr), EVP_PKEY_CTX_free);
+    if (!context || EVP_PKEY_keygen_init(context.get()) <= 0 ||
+        EVP_PKEY_CTX_set_rsa_keygen_bits(context.get(), 2048) <= 0) {
+        throw std::runtime_error("could not initialize test certificate key");
+    }
+
+    EVP_PKEY* raw_key = nullptr;
+    if (EVP_PKEY_keygen(context.get(), &raw_key) <= 0) {
+        throw std::runtime_error("could not generate test certificate key");
+    }
+    return std::unique_ptr<EVP_PKEY, PkeyDeleter>(raw_key);
+}
+
+std::unique_ptr<X509, X509Deleter> make_test_certificate(EVP_PKEY* key) {
+    std::unique_ptr<X509, X509Deleter> certificate(X509_new());
+    if (!certificate || X509_set_version(certificate.get(), 2) != 1 ||
+        ASN1_INTEGER_set(X509_get_serialNumber(certificate.get()), 1) != 1 ||
+        X509_gmtime_adj(X509_getm_notBefore(certificate.get()), -60) == nullptr ||
+        X509_gmtime_adj(X509_getm_notAfter(certificate.get()), 3600) == nullptr ||
+        X509_set_pubkey(certificate.get(), key) != 1) {
+        throw std::runtime_error("could not initialize test certificate");
+    }
+
+    X509_NAME* subject = X509_get_subject_name(certificate.get());
+    constexpr unsigned char common_name[] = "localhost";
+    if (X509_NAME_add_entry_by_txt(
+            subject, "CN", MBSTRING_ASC, common_name, -1, -1, 0) != 1 ||
+        X509_set_issuer_name(certificate.get(), subject) != 1 ||
+        X509_sign(certificate.get(), key, EVP_sha256()) <= 0) {
+        throw std::runtime_error("could not sign test certificate");
+    }
+    return certificate;
+}
+
+void install_test_certificate(asio::ssl::context& context) {
+    auto key = make_test_key();
+    auto certificate = make_test_certificate(key.get());
+    SSL_CTX* native_context = context.native_handle();
+    if (SSL_CTX_use_certificate(native_context, certificate.get()) != 1 ||
+        SSL_CTX_use_PrivateKey(native_context, key.get()) != 1 ||
+        SSL_CTX_check_private_key(native_context) != 1) {
+        throw std::runtime_error("could not install test TLS certificate");
+    }
+}
+
+std::array<std::uint8_t, kMaximumFrameSize> make_frame(
+    std::uint64_t sequence, std::int16_t x, std::int16_t y) {
+    std::array<std::uint8_t, kMaximumFrameSize> bytes{};
+    bytes[0] = 0x41;
+    bytes[1] = 0x47;
+    bytes[2] = 1;
+    bytes[3] = 1;
+    bytes[5] = static_cast<std::uint8_t>(kMovePayloadSize);
+    for (std::size_t index = 0; index < 8; ++index) {
+        const auto shift = static_cast<unsigned int>((7 - index) * 8);
+        bytes[6 + index] = static_cast<std::uint8_t>(sequence >> shift);
+    }
+
+    const auto x_bits = static_cast<std::uint16_t>(x);
+    const auto y_bits = static_cast<std::uint16_t>(y);
+    bytes[14] = static_cast<std::uint8_t>(x_bits >> 8U);
+    bytes[15] = static_cast<std::uint8_t>(x_bits);
+    bytes[16] = static_cast<std::uint8_t>(y_bits >> 8U);
+    bytes[17] = static_cast<std::uint8_t>(y_bits);
+    return bytes;
+}
+
+class NetworkServiceTest : public ::testing::Test {
+protected:
+    void SetUp() override {
+        install_test_certificate(server_tls_);
+        ASSERT_EQ(simulation_.add_player(7, Vec2{10.0, 10.0}),
+                  SimulationError::none);
+        const auto issued = sessions_.issue(7, 60000ms, SessionStore::Clock::now());
+        ASSERT_EQ(issued.error, SessionError::none);
+        credential_ = issued.credential;
+
+        NetworkServiceConfig config;
+        config.maximum_connections = 1;
+        config.authentication_timeout = 500ms;
+        config.frame_timeout = 150ms;
+        config.movement_rate_capacity = 2.0;
+        config.movement_rate_per_second = 1.0;
+        config.on_error = [this](std::error_code) {
+            service_error_count_.fetch_add(1, std::memory_order_relaxed);
+        };
+        service_ = std::make_unique<NetworkService>(
+            server_io_, server_tls_, sessions_, simulation_, std::move(config));
+        service_->start();
+        worker_ = std::thread([this] { server_io_.run(); });
+    }
+
+    void TearDown() override {
+        if (service_) {
+            service_->stop();
+        }
+        if (worker_.joinable()) {
+            worker_.join();
+        }
+        service_.reset();
+    }
+
+    asio::ssl::stream<asio::ip::tcp::socket> connect_client(
+        asio::io_context& client_io,
+        asio::ssl::context& client_tls) {
+        asio::ssl::stream<asio::ip::tcp::socket> client(client_io, client_tls);
+        client.lowest_layer().connect(service_->local_endpoint());
+        client.handshake(asio::ssl::stream_base::client);
+        return client;
+    }
+
+    void authenticate(
+        asio::ssl::stream<asio::ip::tcp::socket>& client,
+        const SessionCredential& credential) {
+        asio::write(client, asio::buffer(credential));
+    }
+
+    std::optional<PlayerState> player_state() {
+        auto promise = std::make_shared<std::promise<std::optional<PlayerState>>>();
+        auto result = promise->get_future();
+        asio::post(server_io_, [this, promise] {
+            promise->set_value(simulation_.player(7));
+        });
+        if (result.wait_for(1s) != std::future_status::ready) {
+            return std::nullopt;
+        }
+        return result.get();
+    }
+
+    bool wait_for_player_position_change(double initial_x) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            const auto state = player_state();
+            if (state && state->position.x > initial_x) {
+                return true;
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        return false;
+    }
+
+    bool wait_for_player_velocity_x(double expected) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            const auto state = player_state();
+            if (state && state->velocity.x == expected) {
+                return true;
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        return false;
+    }
+
+    bool wait_for_close(
+        asio::ssl::stream<asio::ip::tcp::socket>& client,
+        asio::io_context& client_io) {
+        std::promise<asio::error_code> result;
+        auto completed = result.get_future();
+        bool timed_out = false;
+        asio::steady_timer deadline(client_io);
+        deadline.expires_after(2s);
+        deadline.async_wait([&](const asio::error_code& error) {
+            if (!error) {
+                timed_out = true;
+                asio::error_code ignored;
+                client.lowest_layer().cancel(ignored);
+            }
+        });
+        std::array<std::uint8_t, 1> byte{};
+        client.async_read_some(asio::buffer(byte),
+            [&](const asio::error_code& error, std::size_t) {
+                deadline.cancel();
+                result.set_value(error);
+            });
+        client_io.run();
+        return !timed_out && completed.wait_for(0s) == std::future_status::ready &&
+               static_cast<bool>(completed.get());
+    }
+
+    asio::io_context server_io_;
+    asio::ssl::context server_tls_{asio::ssl::context::tls_server};
+    SessionStore sessions_;
+    Simulation simulation_;
+    SessionCredential credential_{};
+    std::atomic_size_t service_error_count_{};
+    std::unique_ptr<NetworkService> service_;
+    std::thread worker_;
+};
+
+TEST_F(NetworkServiceTest, AuthenticatedMovementUsesServerFixedTicks) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto frame = make_frame(1, 1000, 0);
+    asio::write(client, asio::buffer(frame));
+
+    EXPECT_TRUE(wait_for_player_position_change(10.0));
+    EXPECT_EQ(service_error_count_.load(std::memory_order_relaxed), 0U);
+}
+
+TEST_F(NetworkServiceTest, RejectsUnknownCredentials) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    const SessionCredential unknown{};
+    authenticate(client, unknown);
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+}
+
+TEST_F(NetworkServiceTest, ClosesPartialFramesAfterTheReadDeadline) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto frame = make_frame(1, 1000, 0);
+    asio::write(
+        client, asio::buffer(frame.data(), kProtocolHeaderSize));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+}
+
+TEST_F(NetworkServiceTest, ClosesUnauthenticatedConnectionsAfterTheDeadline) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+}
+
+TEST_F(NetworkServiceTest, RejectsMalformedFrameWithoutChangingPlayerState) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    auto frame = make_frame(1, 1000, 0);
+    frame[0] = 0;
+    asio::write(client, asio::buffer(frame));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    const auto state = player_state();
+    ASSERT_TRUE(state);
+    EXPECT_DOUBLE_EQ(state->position.x, 10.0);
+}
+
+TEST_F(NetworkServiceTest, ClosesConnectionsWhenASequenceIsReplayed) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto frame = make_frame(2, 500, 0);
+    asio::write(client, asio::buffer(frame));
+    asio::write(client, asio::buffer(frame));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+}
+
+TEST_F(NetworkServiceTest, RechecksCredentialRevocationForEveryFrame) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto moving_frame = make_frame(1, 1000, 0);
+    asio::write(client, asio::buffer(moving_frame));
+    ASSERT_TRUE(wait_for_player_position_change(10.0));
+
+    const auto stop_frame = make_frame(2, 0, 0);
+    asio::write(client, asio::buffer(stop_frame));
+    ASSERT_TRUE(wait_for_player_velocity_x(0.0));
+    const auto state = player_state();
+    ASSERT_TRUE(state);
+    const double position_before_revocation = state->position.x;
+
+    ASSERT_EQ(sessions_.revoke(credential_), SessionError::none);
+    const auto revoked_frame = make_frame(3, -1000, 0);
+    asio::write(client, asio::buffer(revoked_frame));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    const auto final_state = player_state();
+    ASSERT_TRUE(final_state);
+    EXPECT_DOUBLE_EQ(final_state->position.x, position_before_revocation);
+    EXPECT_DOUBLE_EQ(final_state->velocity.x, 0.0);
+}
+
+TEST_F(NetworkServiceTest, StopsMovementWhenAnIdleSessionExpires) {
+    const auto issued = sessions_.issue(
+        7, SessionStore::Duration{1000}, SessionStore::Clock::now());
+    ASSERT_EQ(issued.error, SessionError::none);
+
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, issued.credential);
+
+    const auto frame = make_frame(1, 1000, 0);
+    asio::write(client, asio::buffer(frame));
+    ASSERT_TRUE(wait_for_player_position_change(10.0));
+    ASSERT_TRUE(wait_for_player_velocity_x(0.0));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    const auto state = player_state();
+    ASSERT_TRUE(state);
+    EXPECT_DOUBLE_EQ(state->velocity.x, 0.0);
+}
+
+TEST_F(NetworkServiceTest, RejectsTlsTwelveClients) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    ASSERT_EQ(SSL_CTX_set_min_proto_version(
+                  client_tls.native_handle(), TLS1_2_VERSION),
+              1);
+    ASSERT_EQ(SSL_CTX_set_max_proto_version(
+                  client_tls.native_handle(), TLS1_2_VERSION),
+              1);
+    asio::ssl::stream<asio::ip::tcp::socket> client(client_io, client_tls);
+    client.lowest_layer().connect(service_->local_endpoint());
+
+    EXPECT_THROW(
+        client.handshake(asio::ssl::stream_base::client),
+        asio::system_error);
+}
+
+TEST_F(NetworkServiceTest, RejectsConnectionsAboveTheConfiguredLimit) {
+    asio::io_context first_io;
+    asio::ssl::context first_tls(asio::ssl::context::tls_client);
+    first_tls.set_verify_mode(asio::ssl::verify_none);
+    auto first = connect_client(first_io, first_tls);
+
+    asio::io_context second_io;
+    asio::ssl::context second_tls(asio::ssl::context::tls_client);
+    second_tls.set_verify_mode(asio::ssl::verify_none);
+    asio::ssl::stream<asio::ip::tcp::socket> second(second_io, second_tls);
+    second.lowest_layer().connect(service_->local_endpoint());
+
+    EXPECT_THROW(
+        second.handshake(asio::ssl::stream_base::client),
+        asio::system_error);
+}
+
+TEST_F(NetworkServiceTest, AppliesThePerConnectionMovementRateLimit) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto first_frame = make_frame(1, 1000, 0);
+    const auto second_frame = make_frame(2, -1000, 0);
+    const auto third_frame = make_frame(3, 1000, 0);
+    asio::write(client, asio::buffer(first_frame));
+    asio::write(client, asio::buffer(second_frame));
+    asio::write(client, asio::buffer(third_frame));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+}
+
+TEST_F(NetworkServiceTest, StopsAnAuthenticatedConnectionWithTlsShutdown) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+    const auto frame = make_frame(1, 1000, 0);
+    asio::write(client, asio::buffer(frame));
+    ASSERT_TRUE(wait_for_player_position_change(10.0));
+
+    service_->stop();
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    asio::error_code shutdown_error;
+    client.shutdown(shutdown_error);
+    EXPECT_FALSE(shutdown_error);
+}
+
+}  // namespace
+}  // namespace aegisguard
