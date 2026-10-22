@@ -1,13 +1,23 @@
 # ML evaluation status
 
-No ML model, feature pipeline or training corpus is implemented. The project
-has no real-player data. Synthetic evaluations must be labeled as synthetic and
-must not be reported as real-world cheat-detection accuracy.
+No ML model or training corpus is implemented, and the project has no
+real-player data. Milestone 6 adds a versioned offline movement feature
+extractor and a configurable repetition heuristic. Its four labeled examples
+are synthetic unit-test traces, not a training corpus or real-world evaluation.
+Milestone 7 adds a seeded generator and a disjoint synthetic holdout set. The
+holdout has 40 traces per class and is evaluated using the threshold already
+defined by the heuristic. It is not used to tune a model or threshold. See
+[movement statistics](../detection/movement-statistics.md) for the generator,
+feature definition and measured results.
 
-Before introducing a model, define a leakage-safe session split and a labeled
-corpus. Validate feature schemas, missing and non-finite values, label balance,
-reproducibility, serialization, inference failures and future-information
-leakage. Compare the model with deterministic rules and report precision,
-recall, false-positive rate, false-negative rate and threshold sensitivity.
+No model was added. The current single-feature heuristic is already
+deterministic, cheap to evaluate and has no training or inference dependency to
+compare against. A learned model is not justified by these synthetic patterns.
+Before considering one, define a representative labeled corpus and a
+leakage-safe session split. Validate feature schemas, missing and non-finite
+values, label balance, reproducibility, serialization, inference failures and
+future-information leakage. Compare a model with the deterministic baseline
+and report precision, recall, false-positive rate, false-negative rate and
+threshold sensitivity.
 
-No ML metrics have been measured.
+No learned-model metrics have been measured.

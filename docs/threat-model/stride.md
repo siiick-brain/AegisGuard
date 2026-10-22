@@ -19,8 +19,9 @@ edges remain out of scope because they are not implemented.
 1. **Client to server:** client bytes and timing cross a TLS 1.3 listener. The
    service validates session credentials, framing, sequence and rate before
    accepting movement intent.
-2. **Simulation to detector:** detector outputs can inform review/enforcement but
-   cannot mutate authoritative state or bypass deterministic validation.
+2. **Simulation to detector:** protocol findings can inform review, but the
+   test-only recommendations do not change accepted simulation state or apply
+   account penalties. Findings are delivered through a caller callback.
 3. **Server to evidence store:** emitted events may contain sensitive behavioral
    data; the store requires schema validation, bounded writes, access control,
    retention, and integrity measures.
@@ -33,7 +34,7 @@ edges remain out of scope because they are not implemented.
 |---|---|---|
 | Spoofing | A caller impersonates another player or reuses an expired session. | TLS 1.3 protects transport. A bounded session store issues random credentials, binds them to server-supplied player IDs, expires them and supports revocation. The listener revalidates credentials for every frame and tick. Credential issuance and player provisioning remain outside the service. |
 | Tampering | A client submits a position, inventory, score, or hit result as trusted state. | Accept intent only; derive state and outcomes on the server; test state invariants and reject unauthorized fields. |
-| Repudiation | An enforcement action cannot be explained or reconstructed. | Versioned evidence records with correlation, reasons, detector versions, and replay; document hash-chain limitations and access controls. |
+| Repudiation | An enforcement action cannot be explained or reconstructed. | Protocol findings include a version, signal, reason and count and reach a caller callback. Persistent evidence, replay, access controls and account-level enforcement remain unimplemented. |
 | Information disclosure | Logs or exported evidence leak credentials or unnecessary personal data. | Never log secrets; minimize and pseudonymize fields; separate datasets; define access, retention, and deletion before collecting real telemetry. |
 | Denial of service | Oversized messages, floods, slow handshakes or unbounded connections exhaust resources. | Fixed-size frames, a 128-connection default cap, authentication and frame deadlines, per-connection rate limits, bounded latest-intent storage and bounded TLS shutdown. Defaults need workload testing. |
 | Elevation of privilege | A player invokes admin actions or CI/deployment credentials are over-scoped. | Explicit authorization roles, least-privilege workflows and service accounts, protected secrets, and negative authorization tests. Operator/admin surfaces are not yet implemented. |

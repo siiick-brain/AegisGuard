@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aegisguard/session_store.hpp"
+#include "aegisguard/rule_detector.hpp"
 #include "aegisguard/simulation.hpp"
 
 #include <asio.hpp>
@@ -11,6 +12,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <string_view>
 #include <system_error>
 
 namespace aegisguard {
@@ -23,14 +25,17 @@ struct NetworkServiceConfig {
     std::chrono::milliseconds frame_timeout{1000};
     double movement_rate_capacity{16.0};
     double movement_rate_per_second{60.0};
+    RuleDetectorConfig rule_detector{};
     std::function<void(std::error_code)> on_error;
+    std::function<void(const RuleFinding&)> on_detection;
+    std::function<void(std::string_view, const void*)> on_lifecycle;
 };
 
 class NetworkService {
 public:
     NetworkService(
-        asio::io_context& io_context,
-        asio::ssl::context& tls_context,
+        std::shared_ptr<asio::io_context> io_context,
+        std::shared_ptr<asio::ssl::context> tls_context,
         SessionStore& sessions,
         Simulation& simulation,
         NetworkServiceConfig config);
@@ -42,6 +47,7 @@ public:
     NetworkService& operator=(NetworkService&&) = delete;
 
     void start();
+    // Keep the shared io_context running until run() drains cancelled handlers.
     void stop();
     [[nodiscard]] asio::ip::tcp::endpoint local_endpoint() const;
 

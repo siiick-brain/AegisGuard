@@ -9,6 +9,7 @@ process `PATH` during this session. Tests were run using the executable path
 recorded in `build/CMakeCache.txt`. A normal terminal should have the CMake
 `bin` directory on `PATH` before using the README commands.
 
-Clang/libFuzzer, Docker, Trivy, Gitleaks, Syft, Cosign, ZAP, Prometheus and the
-OpenTelemetry Collector are unavailable in this environment. No results are
-claimed for them.
+Clang/libFuzzer, Docker, Trivy, Gitleaks, Cosign, ZAP, Prometheus and the
+OpenTelemetry Collector are unavailable locally. Syft, CodeQL and Scorecard
+are configured through pinned GitHub Actions, but no remote workflow run has
+completed. No scan, SBOM or Scorecard result is claimed yet.

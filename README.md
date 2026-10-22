@@ -7,10 +7,22 @@ state on a fixed timestep.
 **Status:** The simulation, spatial index and initial TLS game service are
 implemented. The service accepts TLS 1.3, authenticates a bounded session
 credential and sends validated movement intent into the fixed-tick simulation.
-All 44 tests pass in the Release build. Milestone 3 remains open because one
-fresh Debug test run reported an intermittent process segfault after a TLS
-shutdown test printed a pass. Repeated Debug runs have not reproduced it. See
-the [requirements matrix](docs/requirements-matrix.md) for current status.
+Milestone 4 adds protocol-rule detection with test-only recommendations.
+Milestone 5 adds bounded in-memory replay sessions. Milestones 6 and 7 add an
+experimental, offline movement-statistics heuristic plus a seeded synthetic
+holdout evaluation. They do not use game data or affect server enforcement.
+Milestone 8 adds configured CI, CodeQL, Scorecard and source-SBOM workflows;
+they have not yet run on GitHub. Docker Compose is deferred because the
+repository has no runnable server executable. The latest historical full
+local runs passed 67/68 Release and 66/68 Debug tests. The current worktree
+builds. After fixing inconsistent MinGW Asio thread selection, the full
+70-test CTest suite passed 10/10 runs in both Debug and Release; three focused
+crash-prone tests also passed 20 repetitions each. This resolves the observed
+local test crash on this toolchain, but does not validate other platforms.
+There is no standalone game-server executable yet, so this is a buildable
+library with local integration tests, not a complete playable program. See the
+[requirements matrix](docs/requirements-matrix.md) and
+[known failures](docs/testing/KNOWN_FAILURES.md).
 
 ## Current implementation
 
@@ -30,6 +42,16 @@ the [requirements matrix](docs/requirements-matrix.md) for current status.
 - An Asio listener that requires TLS 1.3, validates session credentials, limits
   connections and input rates, rejects replayed frames, applies read deadlines
   and feeds the simulation on its fixed tick.
+- A rule detector for out-of-range movement, replayed sequences and rate-limit
+  violations. Findings include a reason and rolling count. Recommendations can
+  escalate from review to throttle or disconnect, but the detector applies only
+  `observe`; existing protocol rejections remain in force.
+- A bounded in-memory replay session that records accepted simulation inputs
+  and validates the recorded ticks by replaying them from the initial state.
+- A versioned movement-feature extractor and configurable repeated-input
+  heuristic for offline replay analysis. Seeded synthetic traces exercise a
+  disjoint holdout set. Findings remain observe-only; real gameplay has not
+  been evaluated.
 - A libFuzzer target for the untrusted movement-frame decoder. It is optional
   and has not yet been run in this Windows toolchain because Clang is absent.
 
@@ -41,6 +63,13 @@ certificate provisioning or key rotation workflow. Do not expose it to public
 traffic. See the [protocol documentation](docs/protocol.md), [architecture
 overview](docs/architecture/overview.md) and [threat model](docs/threat-model/stride.md)
 for its current boundaries.
+
+Rule scope, thresholds, evidence fields and evaluation limits are in the
+[rule detection notes](docs/detection/rule-detection.md).
+Feature definitions, the synthetic test results and their limits are in the
+[movement statistics notes](docs/detection/movement-statistics.md).
+Replay contents, bounds, retention and current limitations are in the
+[replay documentation](docs/telemetry/replay.md).
 
 ## Build and test
 
@@ -97,13 +126,15 @@ license; it is development guidance, not a runtime dependency.
 - [Protocol fuzzing](docs/testing/PROTOCOL_FUZZING.md)
 - [OWASP assessment](docs/security/owasp-assessment.md)
 - [Security requirements matrix](docs/security/requirements-verification.md)
+- [CI and software supply chain](docs/operations/ci-and-supply-chain.md)
 
 The TLS tests use an ephemeral self-signed certificate and disable certificate
 verification in the test client. They verify local service behavior, not
 certificate issuance or production trust configuration. The libFuzzer harness
 is configured for Clang on Linux or macOS; it has not been executed in the
-current Windows environment. ZAP, Trivy, CodeQL, Prometheus and OpenTelemetry
-are deferred to the milestones where their targets exist.
+current Windows environment. CodeQL and Scorecard workflows are configured
+but have not run remotely. ZAP, Trivy, Dependency-Check, Prometheus and
+OpenTelemetry remain deferred until their targets and supported inputs exist.
 
 ## Design and project status
 

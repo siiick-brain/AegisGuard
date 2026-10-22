@@ -9,9 +9,12 @@
 #include <array>
 #include <atomic>
 #include <cmath>
+#include <iostream>
 #include <map>
 #include <set>
 #include <stdexcept>
+#include <string_view>
+#include <syncstream>
 #include <utility>
 #include <vector>
 
@@ -41,6 +44,46 @@ void configure_tls(asio::ssl::context& context) {
     }
 }
 
+NetworkServiceConfig validate_config(
+    NetworkServiceConfig config,
+    double fixed_delta_seconds,
+    const std::shared_ptr<asio::io_context>& io_context,
+    const std::shared_ptr<asio::ssl::context>& tls_context) {
+    const auto tick_interval =
+        std::chrono::duration_cast<SteadyClock::duration>(
+            std::chrono::duration<double>(fixed_delta_seconds));
+    if (!io_context || !tls_context ||
+        config.maximum_connections == 0 ||
+        config.authentication_timeout <= std::chrono::milliseconds::zero() ||
+        config.frame_timeout <= std::chrono::milliseconds::zero() ||
+        !std::isfinite(config.movement_rate_capacity) ||
+        config.movement_rate_capacity < 1.0 ||
+        !std::isfinite(config.movement_rate_per_second) ||
+        config.movement_rate_per_second <= 0.0 ||
+        tick_interval <= SteadyClock::duration::zero() ||
+        !config.on_error || !config.on_detection) {
+        throw std::invalid_argument("network service configuration is invalid");
+    }
+    return config;
+}
+
+std::shared_ptr<asio::ssl::context> configure_tls_context(
+    std::shared_ptr<asio::ssl::context> context) {
+    configure_tls(*context);
+    return context;
+}
+
+void log_lifecycle(
+    const NetworkServiceConfig& config,
+    std::string_view event,
+    const void* object) {
+    std::osyncstream(std::clog)
+        << "[aegisguard.tls] " << event << " object=" << object << '\n';
+    if (config.on_lifecycle) {
+        config.on_lifecycle(event, object);
+    }
+}
+
 }  // namespace
 
 class NetworkService::Impl final
@@ -49,6 +92,7 @@ public:
     class Connection final : public std::enable_shared_from_this<Connection> {
     public:
         Connection(std::shared_ptr<Impl> owner, Tcp::socket socket);
+        ~Connection();
         void start();
         void shutdown();
         void close();
@@ -73,38 +117,42 @@ public:
         TokenBucket limiter_;
         std::optional<std::uint64_t> player_id_;
         bool authenticated_{};
+        bool handshake_in_progress_{};
         bool shutdown_requested_{};
         bool shutdown_started_{};
         bool closed_{};
     };
 
     Impl(
-        asio::io_context& io_context,
-        asio::ssl::context& tls_context,
+        std::shared_ptr<asio::io_context> io_context,
+        std::shared_ptr<asio::ssl::context> tls_context,
         SessionStore& sessions,
         Simulation& simulation,
         NetworkServiceConfig config)
-        : strand_(asio::make_strand(io_context)),
-          tls_context_(tls_context),
+        : config_(validate_config(
+              std::move(config),
+              simulation.fixed_delta_seconds(),
+              io_context,
+              tls_context)),
+          io_context_(std::move(io_context)),
+          tls_context_(configure_tls_context(std::move(tls_context))),
           sessions_(sessions),
           simulation_(simulation),
-          config_(std::move(config)),
+          detector_(config_.rule_detector),
+          strand_(asio::make_strand(*io_context_)),
           acceptor_(strand_),
           tick_timer_(strand_),
           tick_interval_(std::chrono::duration_cast<SteadyClock::duration>(
               std::chrono::duration<double>(simulation.fixed_delta_seconds()))) {
-        if (config_.maximum_connections == 0 ||
-            config_.authentication_timeout <= std::chrono::milliseconds::zero() ||
-            config_.frame_timeout <= std::chrono::milliseconds::zero() ||
-            !std::isfinite(config_.movement_rate_capacity) ||
-            config_.movement_rate_capacity < 1.0 ||
-            !std::isfinite(config_.movement_rate_per_second) ||
-            config_.movement_rate_per_second <= 0.0 ||
-            tick_interval_ <= SteadyClock::duration::zero() ||
-            !config_.on_error) {
-            throw std::invalid_argument("network service configuration is invalid");
-        }
-        configure_tls(tls_context_);
+        emit_lifecycle("TLS context acquired", tls_context_.get());
+    }
+
+    ~Impl() {
+        emit_lifecycle("TLS context released", tls_context_.get());
+    }
+
+    void emit_lifecycle(std::string_view event, const void* object) const {
+        log_lifecycle(config_, event, object);
     }
 
     void start() {
@@ -275,6 +323,17 @@ private:
         movement_by_player_.insert_or_assign(player_id, movement);
     }
 
+    void report_rule_signal(std::uint64_t player_id, RuleSignal signal) {
+        const auto result = detector_.observe(player_id, signal, simulation_.tick());
+        if (result.error != RuleDetectorError::none) {
+            config_.on_error(service_error());
+            return;
+        }
+        if (config_.on_detection && result.finding) {
+            config_.on_detection(*result.finding);
+        }
+    }
+
     void remove_connection(const std::shared_ptr<Connection>& connection) {
         connections_.erase(connection);
         const auto player_id = connection->player_id();
@@ -290,11 +349,13 @@ private:
         }
     }
 
-    asio::strand<asio::io_context::executor_type> strand_;
-    asio::ssl::context& tls_context_;
+    NetworkServiceConfig config_;
+    std::shared_ptr<asio::io_context> io_context_;
+    std::shared_ptr<asio::ssl::context> tls_context_;
     SessionStore& sessions_;
     Simulation& simulation_;
-    NetworkServiceConfig config_;
+    RuleDetector detector_;
+    asio::strand<asio::io_context::executor_type> strand_;
     Tcp::acceptor acceptor_;
     asio::steady_timer tick_timer_;
     SteadyClock::duration tick_interval_;
@@ -310,21 +371,34 @@ private:
 NetworkService::Impl::Connection::Connection(
     std::shared_ptr<Impl> owner, Tcp::socket socket)
     : owner_(std::move(owner)),
-      stream_(std::move(socket), owner_->tls_context_),
+      stream_(std::move(socket), *owner_->tls_context_),
       timer_(stream_.get_executor()),
       limiter_(
           owner_->config_.movement_rate_capacity,
           owner_->config_.movement_rate_per_second,
-          SteadyClock::now()) {}
+          SteadyClock::now()) {
+    owner_->emit_lifecycle("session created", this);
+}
+
+NetworkService::Impl::Connection::~Connection() {
+    owner_->emit_lifecycle("session destroyed", this);
+}
 
 void NetworkService::Impl::Connection::start() {
     arm_timeout(owner_->config_.authentication_timeout);
+    handshake_in_progress_ = true;
+    owner_->emit_lifecycle("handshake started", this);
     const auto self = shared_from_this();
     stream_.async_handshake(
         asio::ssl::stream_base::server,
         asio::bind_executor(owner_->strand_,
             [self](const asio::error_code& error) {
+                self->handshake_in_progress_ = false;
                 self->cancel_timeout();
+                self->owner_->emit_lifecycle(
+                    error ? "handshake finished with error"
+                          : "handshake finished",
+                    self.get());
                 if (error) {
                     self->close();
                     return;
@@ -339,11 +413,6 @@ void NetworkService::Impl::Connection::shutdown() {
     }
     shutdown_requested_ = true;
     cancel_timeout();
-    if (!authenticated_) {
-        close();
-        return;
-    }
-
     asio::error_code ignored;
     stream_.lowest_layer().cancel(ignored);
 }
@@ -363,15 +432,24 @@ void NetworkService::Impl::Connection::close() {
 }
 
 void NetworkService::Impl::Connection::begin_tls_shutdown() {
-    if (closed_ || shutdown_started_) {
+    if (closed_ || shutdown_started_ || handshake_in_progress_ ||
+        !authenticated_) {
+        if (!closed_ && !shutdown_started_) {
+            close();
+        }
         return;
     }
     shutdown_started_ = true;
     arm_timeout(std::chrono::milliseconds{250});
+    owner_->emit_lifecycle("TLS shutdown started", this);
     const auto self = shared_from_this();
     stream_.async_shutdown(asio::bind_executor(
-        owner_->strand_, [self](const asio::error_code&) {
+        owner_->strand_, [self](const asio::error_code& error) {
             self->cancel_timeout();
+            self->owner_->emit_lifecycle(
+                error ? "TLS shutdown finished with error"
+                      : "TLS shutdown finished",
+                self.get());
             self->close();
         }));
 }
@@ -402,7 +480,12 @@ void NetworkService::Impl::Connection::arm_timeout(
     timer_.async_wait(asio::bind_executor(
         owner_->strand_, [self](const asio::error_code& error) {
             if (!error) {
-                self->close();
+                if (self->shutdown_started_) {
+                    asio::error_code ignored;
+                    self->stream_.lowest_layer().cancel(ignored);
+                } else {
+                    self->close();
+                }
             }
         }));
 }
@@ -499,7 +582,14 @@ void NetworkService::Impl::Connection::read_payload() {
 
                 const auto decoded = decode_move_frame(self->frame_);
                 if (decoded.error != ProtocolError::none) {
+                    const bool out_of_range =
+                        decoded.error == ProtocolError::invalid_movement;
+                    const auto player_id = self->player_id_;
                     self->close();
+                    if (out_of_range && player_id) {
+                        self->owner_->report_rule_signal(
+                            *player_id, RuleSignal::movement_out_of_range);
+                    }
                     return;
                 }
                 const auto session_error = self->owner_->sessions_.validate(
@@ -510,11 +600,29 @@ void NetworkService::Impl::Connection::read_payload() {
                     self->owner_->stop();
                     return;
                 }
-                if (session_error != SessionError::none ||
-                    self->sequence_guard_.accept(decoded.frame.sequence) !=
-                        ProtocolError::none ||
-                    !self->limiter_.consume(SteadyClock::now())) {
+                if (session_error != SessionError::none) {
                     self->close();
+                    return;
+                }
+                const ProtocolError sequence_error =
+                    self->sequence_guard_.accept(decoded.frame.sequence);
+                if (sequence_error != ProtocolError::none) {
+                    const auto player_id = self->player_id_;
+                    self->close();
+                    if (sequence_error == ProtocolError::replay_or_out_of_order &&
+                        player_id) {
+                        self->owner_->report_rule_signal(
+                            *player_id, RuleSignal::replayed_sequence);
+                    }
+                    return;
+                }
+                if (!self->limiter_.consume(SteadyClock::now())) {
+                    const auto player_id = self->player_id_;
+                    self->close();
+                    if (player_id) {
+                        self->owner_->report_rule_signal(
+                            *player_id, RuleSignal::movement_rate_exceeded);
+                    }
                     return;
                 }
 
@@ -526,13 +634,17 @@ void NetworkService::Impl::Connection::read_payload() {
 }
 
 NetworkService::NetworkService(
-    asio::io_context& io_context,
-    asio::ssl::context& tls_context,
+    std::shared_ptr<asio::io_context> io_context,
+    std::shared_ptr<asio::ssl::context> tls_context,
     SessionStore& sessions,
     Simulation& simulation,
     NetworkServiceConfig config)
     : impl_(std::make_shared<Impl>(
-          io_context, tls_context, sessions, simulation, std::move(config))) {}
+          std::move(io_context),
+          std::move(tls_context),
+          sessions,
+          simulation,
+          std::move(config))) {}
 
 NetworkService::~NetworkService() {
     stop();

@@ -17,24 +17,30 @@ to the current game-protocol listener.
 
 ## Results
 
-The Release CTest suite passes 44 tests, including 12 TLS service integration
-cases. One fresh Debug run reported an unresolved process segfault after the
-TLS shutdown test printed a pass. Repeated Debug runs did not reproduce it, so
-Milestone 3 remains open. These tests verify the listed local controls. They
-are not a penetration test or an independent security review.
+Earlier full-suite runs had intermittent network-test process crashes. The
+current worktree registers 70 GoogleTest cases. After unifying MinGW Asio
+thread-backend selection across translation units, the complete suite passed
+10/10 consecutive runs in both Debug and Release. Three previously crash-prone
+network tests passed 20 focused Debug repetitions each; Python utility tests
+passed 2/2. The root cause and fix evidence are recorded in
+[known failures](../testing/KNOWN_FAILURES.md). These tests verify the listed
+local controls. They are not a penetration test or an independent security
+review.
 
 No confirmed OWASP findings have been recorded. ZAP baseline and active scans
-were not run because there is no HTTP dashboard or API. Trivy, Dependency-Check,
-CodeQL, secret scanning and container checks were not run. Missing scans are
-not clean results.
+were not run because there is no HTTP dashboard or API. CodeQL and Scorecard
+workflows are configured but have not run on GitHub. Trivy,
+Dependency-Check, secret scanning and container checks are not configured;
+there is no supported C++ lockfile, container image or infrastructure target.
+Missing scans are not clean results.
 
 ## Deferred work
 
 - Revisit OWASP Top 10 and API Security Top 10 when an HTTP surface exists.
 - Run ZAP only against an isolated local dashboard/API deployment, with scope
   recorded separately for baseline and active tests.
-- Evaluate Dependency-Check alongside Trivy before enabling overlapping CI
-  scanners.
+- Re-evaluate Dependency-Check and Trivy when a supported dependency manifest,
+  container image or infrastructure target is added.
 - Evaluate OWASP CRS only if an HTTP reverse proxy or WAF becomes part of the
   deployment. It does not protect the custom game protocol.
 - Keep OWASP Juice Shop isolated as an optional training target; it is not part

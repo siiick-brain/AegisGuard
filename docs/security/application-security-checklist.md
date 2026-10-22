@@ -18,7 +18,7 @@ HTTP-specific items remain pending until an administrative API exists.
 | Logging and monitoring | Avoid secret-bearing logs; record security counters without player IDs as metric labels. | Metrics and production logging are not implemented | Deferred |
 | Authorization | Enforce administrative roles at the server boundary. | No administrative surface exists | Deferred |
 | Data retention | Define purpose, retention and deletion before collecting player behavior. | No persistent player telemetry exists | Deferred |
-| Dependency and build security | Scan dependencies and workflows; preserve SBOM/provenance. | CI security pipeline not implemented | Deferred |
+| Dependency and build security | Scan supported dependencies and workflows; preserve SBOM/provenance. | CodeQL, Scorecard and source-SBOM workflows are configured but unverified. Dependency scanners and release provenance are deferred because there is no C++ lockfile or release artifact. | Partial |
 
 Source: [OWASP ASVS 5.0.0](https://github.com/OWASP/ASVS/tree/v5.0.0), licensed
 under CC BY-SA 4.0. This checklist paraphrases project-specific controls and

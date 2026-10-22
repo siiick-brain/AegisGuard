@@ -3,9 +3,11 @@
 ## Purpose and status
 
 This document distinguishes implemented code from proposed components.
-Milestones 0 to 2 are complete. The TLS service implementation is in place,
-but Milestone 3 validation remains open while a one-off Debug process crash is
-investigated. Detection, telemetry and deployment services have not started.
+Milestones 0 to 2 are complete. A MinGW Asio thread-model mismatch that caused
+intermittent test-process crashes was fixed and stress-verified in both Debug
+and Release configurations. Milestone 4 added protocol-rule detection in
+test-only policy mode. Milestone 5 added bounded in-memory replay sessions.
+Persistent telemetry and deployment services have not started.
 
 ## Proposed trust boundaries and flow
 
@@ -14,20 +16,15 @@ investigated. Detection, telemetry and deployment services have not started.
    | input intent only; bounded, versioned framing implemented
    v
  [Network/session service: TLS 1.3 listener implemented]
-   | authenticated, rate-limited, bounded movement frames
-   v
- [Authoritative simulation: fixed-step movement implemented]
-   | validate action -> advance fixed-step state -> determine outcome
-   +------------------------------+
-   |                              |
-   v                              v
- [Spatial index]          [Rule/statistical detection: planned]
-   |                              |
-   +-------------> [Evidence and telemetry boundary]
-                              |
-                    bounded, versioned events
-                              v
-                 [Local store/replay: planned]
+   | accepted movement intent      | replay, rate and movement violations
+   v                               v
+ [Authoritative simulation]  [Rule detection: protocol violations implemented]
+   |                               |
+   v                               +----> [Evidence and telemetry boundary]
+ [Spatial index]                             |
+                                   bounded, versioned events
+                                             v
+                                  [Persistent evidence store: planned]
 
  Build and release inputs (source, dependencies, CI credentials) form a separate
  supply-chain trust boundary. No cloud or third-party service is required by
@@ -72,11 +69,36 @@ bounded session store, enforces per-connection sequences and rate limits, then
 stores the latest movement intent for each connected player. The simulation
 consumes these inputs on its fixed timestep. The service uses one Asio strand;
 the simulation must not be accessed concurrently while the service is running.
-Tests exercise this flow over loopback TCP with generated test certificates.
+The service and each connection share ownership of the `io_context` and TLS
+context. Each asynchronous operation retains its connection until its handler
+finishes. Callers must keep the session store and simulation alive until the
+service has stopped and its `io_context::run()` thread has drained canceled
+handlers. The test fixture follows this order and does not call `io_context::stop()`.
+Tests exercise the flow over loopback TCP with generated test certificates.
+Lifecycle events report when the service acquires and releases its shared TLS
+context; callers create the context and may retain ownership beyond the
+service.
+
+An authenticated connection cancels its pending read before starting TLS
+shutdown. The TLS shutdown handler closes the socket and releases the session.
+Stopping during a handshake cancels the transport; it does not start TLS
+shutdown before the handshake handler completes. Lifecycle events are written
+to standard error with the `[aegisguard.tls]` prefix and contain no credentials.
 
 The service defaults to loopback and has no production certificate provisioning,
 credential issuance flow or client state replication. Its configured connection,
 deadline and rate defaults are provisional, not load-tested capacity claims.
+
+The rule detector observes authenticated movement-range violations, replayed
+sequences and rate-limit violations. It emits versioned findings with reasons
+and test-only escalating recommendations. It does not change simulation
+validation or apply account-level penalties. See the
+[rule detection notes](../detection/rule-detection.md).
+
+`ReplaySession` is a caller-managed in-memory recorder for deterministic
+simulation tests. It is not connected to the TLS service or persistent evidence
+storage. Its data and retention limits are documented in
+[replay documentation](../telemetry/replay.md).
 
 TCP over TLS 1.3 is the proposed initial transport. The trade-off and remaining
 work are recorded in [ADR 0002](decisions/0002-tcp-tls-transport.md). No custom

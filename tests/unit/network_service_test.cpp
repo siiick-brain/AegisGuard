@@ -9,15 +9,22 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#include <algorithm>
 #include <array>
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdint>
 #include <future>
 #include <memory>
+#include <mutex>
 #include <stdexcept>
 #include <span>
+#include <string>
+#include <string_view>
 #include <thread>
+#include <utility>
+#include <vector>
 
 namespace aegisguard {
 namespace {
@@ -108,7 +115,7 @@ std::array<std::uint8_t, kMaximumFrameSize> make_frame(
 class NetworkServiceTest : public ::testing::Test {
 protected:
     void SetUp() override {
-        install_test_certificate(server_tls_);
+        install_test_certificate(*server_tls_);
         ASSERT_EQ(simulation_.add_player(7, Vec2{10.0, 10.0}),
                   SimulationError::none);
         const auto issued = sessions_.issue(7, 60000ms, SessionStore::Clock::now());
@@ -124,10 +131,23 @@ protected:
         config.on_error = [this](std::error_code) {
             service_error_count_.fetch_add(1, std::memory_order_relaxed);
         };
+        config.on_detection = [this](const RuleFinding& finding) {
+            std::lock_guard lock(detection_mutex_);
+            findings_.push_back(finding);
+        };
+        config.on_lifecycle = [this](
+                                  std::string_view event, const void*) {
+            {
+                std::lock_guard lock(lifecycle_mutex_);
+                lifecycle_events_.emplace_back(event);
+            }
+            lifecycle_condition_.notify_all();
+        };
         service_ = std::make_unique<NetworkService>(
             server_io_, server_tls_, sessions_, simulation_, std::move(config));
         service_->start();
-        worker_ = std::thread([this] { server_io_.run(); });
+        const auto io_context = server_io_;
+        worker_ = std::thread([io_context] { io_context->run(); });
     }
 
     void TearDown() override {
@@ -135,6 +155,7 @@ protected:
             service_->stop();
         }
         if (worker_.joinable()) {
+            // run() returns only after the service's canceled handlers drain.
             worker_.join();
         }
         service_.reset();
@@ -158,7 +179,7 @@ protected:
     std::optional<PlayerState> player_state() {
         auto promise = std::make_shared<std::promise<std::optional<PlayerState>>>();
         auto result = promise->get_future();
-        asio::post(server_io_, [this, promise] {
+        asio::post(*server_io_, [this, promise] {
             promise->set_value(simulation_.player(7));
         });
         if (result.wait_for(1s) != std::future_status::ready) {
@@ -191,6 +212,35 @@ protected:
         return false;
     }
 
+    std::vector<RuleFinding> detection_findings() {
+        std::lock_guard lock(detection_mutex_);
+        return findings_;
+    }
+
+    bool wait_for_detection_count(std::size_t expected) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            {
+                std::lock_guard lock(detection_mutex_);
+                if (findings_.size() >= expected) {
+                    return true;
+                }
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        return false;
+    }
+
+    bool wait_for_lifecycle_event(std::string_view expected) {
+        std::unique_lock lock(lifecycle_mutex_);
+        return lifecycle_condition_.wait_for(lock, 1s, [this, expected] {
+            return std::find(
+                       lifecycle_events_.begin(),
+                       lifecycle_events_.end(),
+                       expected) != lifecycle_events_.end();
+        });
+    }
+
     bool wait_for_close(
         asio::ssl::stream<asio::ip::tcp::socket>& client,
         asio::io_context& client_io) {
@@ -217,15 +267,39 @@ protected:
                static_cast<bool>(completed.get());
     }
 
-    asio::io_context server_io_;
-    asio::ssl::context server_tls_{asio::ssl::context::tls_server};
+    std::shared_ptr<asio::io_context> server_io_{
+        std::make_shared<asio::io_context>()};
+    std::shared_ptr<asio::ssl::context> server_tls_{
+        std::make_shared<asio::ssl::context>(asio::ssl::context::tls_server)};
     SessionStore sessions_;
     Simulation simulation_;
     SessionCredential credential_{};
     std::atomic_size_t service_error_count_{};
+    std::mutex detection_mutex_;
+    std::vector<RuleFinding> findings_;
+    std::mutex lifecycle_mutex_;
+    std::condition_variable lifecycle_condition_;
+    std::vector<std::string> lifecycle_events_;
     std::unique_ptr<NetworkService> service_;
     std::thread worker_;
 };
+
+TEST(NetworkServiceConfigTest, RequiresDetectionHandlerToAvoidDroppingFindings) {
+    for (int attempt = 0; attempt < 8; ++attempt) {
+        auto io_context = std::make_shared<asio::io_context>();
+        auto tls_context = std::make_shared<asio::ssl::context>(
+            asio::ssl::context::tls_server);
+        SessionStore sessions;
+        Simulation simulation;
+        NetworkServiceConfig config;
+        config.on_error = [](std::error_code) {};
+
+        EXPECT_THROW(
+            NetworkService service(
+                io_context, tls_context, sessions, simulation, std::move(config)),
+            std::invalid_argument);
+    }
+}
 
 TEST_F(NetworkServiceTest, AuthenticatedMovementUsesServerFixedTicks) {
     asio::io_context client_io;
@@ -292,6 +366,29 @@ TEST_F(NetworkServiceTest, RejectsMalformedFrameWithoutChangingPlayerState) {
     EXPECT_DOUBLE_EQ(state->position.x, 10.0);
 }
 
+TEST_F(NetworkServiceTest, ReportsOutOfRangeMovementAsTestOnlyEvidence) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto frame = make_frame(1, 1001, 0);
+    asio::write(client, asio::buffer(frame));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    ASSERT_TRUE(wait_for_detection_count(1));
+    const auto findings = detection_findings();
+    ASSERT_EQ(findings.size(), 1U);
+    EXPECT_EQ(findings[0].signal, RuleSignal::movement_out_of_range);
+    EXPECT_EQ(findings[0].observations_in_window, 1U);
+    EXPECT_EQ(findings[0].recommended_action, RecommendedAction::observe);
+    EXPECT_EQ(findings[0].applied_action, RecommendedAction::observe);
+    const auto state = player_state();
+    ASSERT_TRUE(state);
+    EXPECT_DOUBLE_EQ(state->position.x, 10.0);
+}
+
 TEST_F(NetworkServiceTest, ClosesConnectionsWhenASequenceIsReplayed) {
     asio::io_context client_io;
     asio::ssl::context client_tls(asio::ssl::context::tls_client);
@@ -304,6 +401,37 @@ TEST_F(NetworkServiceTest, ClosesConnectionsWhenASequenceIsReplayed) {
     asio::write(client, asio::buffer(frame));
 
     EXPECT_TRUE(wait_for_close(client, client_io));
+    ASSERT_TRUE(wait_for_detection_count(1));
+    const auto findings = detection_findings();
+    ASSERT_EQ(findings.size(), 1U);
+    EXPECT_EQ(findings[0].signal, RuleSignal::replayed_sequence);
+}
+
+TEST_F(NetworkServiceTest, TracksRepeatedReplaySignalsAcrossConnections) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+
+    for (std::size_t attempt = 0; attempt < 2; ++attempt) {
+        if (attempt != 0) {
+            client_io.restart();
+        }
+        auto client = connect_client(client_io, client_tls);
+        authenticate(client, credential_);
+
+        const auto frame = make_frame(1, 0, 0);
+        asio::write(client, asio::buffer(frame));
+        asio::write(client, asio::buffer(frame));
+        ASSERT_TRUE(wait_for_close(client, client_io));
+        ASSERT_TRUE(wait_for_detection_count(attempt + 1));
+    }
+
+    const auto findings = detection_findings();
+    ASSERT_EQ(findings.size(), 2U);
+    EXPECT_EQ(findings[0].observations_in_window, 1U);
+    EXPECT_EQ(findings[1].observations_in_window, 2U);
+    EXPECT_EQ(findings[1].recommended_action, RecommendedAction::review);
+    EXPECT_EQ(findings[1].applied_action, RecommendedAction::observe);
 }
 
 TEST_F(NetworkServiceTest, RechecksCredentialRevocationForEveryFrame) {
@@ -406,6 +534,10 @@ TEST_F(NetworkServiceTest, AppliesThePerConnectionMovementRateLimit) {
     asio::write(client, asio::buffer(third_frame));
 
     EXPECT_TRUE(wait_for_close(client, client_io));
+    ASSERT_TRUE(wait_for_detection_count(1));
+    const auto findings = detection_findings();
+    ASSERT_EQ(findings.size(), 1U);
+    EXPECT_EQ(findings[0].signal, RuleSignal::movement_rate_exceeded);
 }
 
 TEST_F(NetworkServiceTest, StopsAnAuthenticatedConnectionWithTlsShutdown) {
@@ -424,6 +556,61 @@ TEST_F(NetworkServiceTest, StopsAnAuthenticatedConnectionWithTlsShutdown) {
     asio::error_code shutdown_error;
     client.shutdown(shutdown_error);
     EXPECT_FALSE(shutdown_error);
+}
+
+TEST_F(NetworkServiceTest, StopsDuringHandshakeWithoutStartingTlsShutdown) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    asio::ssl::stream<asio::ip::tcp::socket> client(client_io, client_tls);
+    client.lowest_layer().connect(service_->local_endpoint());
+    ASSERT_TRUE(wait_for_lifecycle_event("handshake started"));
+
+    service_->stop();
+
+    EXPECT_THROW(
+        client.handshake(asio::ssl::stream_base::client),
+        asio::system_error);
+    {
+        std::lock_guard lock(lifecycle_mutex_);
+        EXPECT_EQ(
+            std::find(
+                lifecycle_events_.begin(),
+                lifecycle_events_.end(),
+                "TLS shutdown started"),
+            lifecycle_events_.end());
+    }
+}
+
+TEST_F(NetworkServiceTest, RetainsContextsUntilShutdownHandlersHaveDrained) {
+    const std::weak_ptr<asio::io_context> io_context_lifetime = server_io_;
+    const std::weak_ptr<asio::ssl::context> tls_context_lifetime = server_tls_;
+
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+    const auto frame = make_frame(1, 1000, 0);
+    asio::write(client, asio::buffer(frame));
+    ASSERT_TRUE(wait_for_player_position_change(10.0));
+
+    server_io_.reset();
+    server_tls_.reset();
+    EXPECT_FALSE(io_context_lifetime.expired());
+    EXPECT_FALSE(tls_context_lifetime.expired());
+
+    service_->stop();
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    asio::error_code shutdown_error;
+    client.shutdown(shutdown_error);
+    if (worker_.joinable()) {
+        worker_.join();
+    }
+    service_.reset();
+
+    EXPECT_TRUE(io_context_lifetime.expired());
+    EXPECT_TRUE(tls_context_lifetime.expired());
 }
 
 }  // namespace

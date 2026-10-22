@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: ${{ matrix.build_type }} build and tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        build_type: [Debug, Release]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libasio-dev \
+            libssl-dev \
+            ninja-build
+
+      - name: Configure C++
+        env:
+          BUILD_TYPE: ${{ matrix.build_type }}
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+
+      - name: Build C++
+        run: cmake --build build --parallel 2
+
+      - name: Run C++ tests
+        run: ctest --test-dir build --output-on-failure --no-tests=error
+
+      - name: Run Python tests
+        run: python3 -m unittest discover -s tests/python -p "test_*.py"
+
+      - name: Create source SBOM
+        if: matrix.build_type == 'Release'
+        uses: anchore/sbom-action@66cbf4bc1f1c0d2edc94016e65bc221b6bb0ad6c # v0.24.3
+        with:
+          path: .
+          format: cyclonedx-json
+          output-file: aegisguard-source-sbom.cdx.json
+          artifact-name: aegisguard-source-sbom
+          upload-artifact-retention: 30

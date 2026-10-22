@@ -14,7 +14,10 @@ add_executable(aegisguard_simulation_tests
     unit/simulation_test.cpp
     unit/quadtree_test.cpp
     unit/protocol_test.cpp
+    unit/replay_session_test.cpp
+    unit/rule_detector_test.cpp
     unit/network_service_test.cpp
+    unit/movement_statistics_test.cpp
     unit/session_store_test.cpp
 )
 
