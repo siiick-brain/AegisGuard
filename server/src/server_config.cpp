@@ -6,6 +6,7 @@
 
 #include <charconv>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <limits>
 #include <map>
@@ -275,6 +276,52 @@ std::string take_string(std::map<std::string, JsonValue>& fields,
     return value.text;
 }
 
+std::string expand_environment_variables(std::string_view value,
+                                        std::string_view key) {
+    std::string expanded;
+    for (std::size_t position = 0; position < value.size();) {
+        if (value[position] != '$' || position + 1 >= value.size() ||
+            value[position + 1] != '{') {
+            expanded.push_back(value[position]);
+            ++position;
+            continue;
+        }
+
+        const std::size_t name_start = position + 2;
+        const std::size_t name_end = value.find('}', name_start);
+        if (name_end == std::string_view::npos || name_end == name_start) {
+            throw std::invalid_argument(
+                "invalid environment variable in config path: " +
+                std::string(key));
+        }
+        const std::string_view name = value.substr(name_start, name_end - name_start);
+        for (const char character : name) {
+            if (!((character >= 'A' && character <= 'Z') ||
+                  (character >= 'a' && character <= 'z') ||
+                  (character >= '0' && character <= '9') ||
+                  character == '_')) {
+                throw std::invalid_argument(
+                    "invalid environment variable in config path: " +
+                    std::string(key));
+            }
+        }
+        const std::string variable_name{name};
+        const char* const variable_value = std::getenv(variable_name.c_str());
+        if (variable_value == nullptr || variable_value[0] == '\0') {
+            throw std::invalid_argument(
+                "config environment variable is not set: " + variable_name);
+        }
+        expanded.append(variable_value);
+        position = name_end + 1;
+    }
+    return expanded;
+}
+
+std::string take_path(std::map<std::string, JsonValue>& fields,
+                      std::string_view key) {
+    return expand_environment_variables(take_string(fields, key), key);
+}
+
 std::uint64_t parse_unsigned(const JsonValue& value, std::string_view key) {
     if (value.is_string || value.text.empty() || value.text.front() == '-') {
         throw std::invalid_argument("config value must be an unsigned integer: " +
@@ -387,10 +434,10 @@ ServerConfig parse_server_config(std::string_view json) {
     config.maximum_sessions = bounded_size(
         take_unsigned(fields, "maximum_sessions", config.maximum_sessions),
         "maximum_sessions");
-    config.tls_certificate = take_string(fields, "tls_certificate");
-    config.tls_private_key = take_string(fields, "tls_private_key");
-    config.admin_ca_certificate = take_string(fields, "admin_ca_certificate");
-    config.token_file = take_string(fields, "token_file");
+    config.tls_certificate = take_path(fields, "tls_certificate");
+    config.tls_private_key = take_path(fields, "tls_private_key");
+    config.admin_ca_certificate = take_path(fields, "admin_ca_certificate");
+    config.token_file = take_path(fields, "token_file");
     config.demo_player_id = take_unsigned(fields, "demo_player_id", config.demo_player_id);
     config.initial_position.x = take_number(fields, "initial_x", config.initial_position.x);
     config.initial_position.y = take_number(fields, "initial_y", config.initial_position.y);

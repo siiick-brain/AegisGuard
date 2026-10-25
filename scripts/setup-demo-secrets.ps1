@@ -1,19 +1,105 @@
 param(
-    [string]$OutputDirectory = "secrets"
+    [string]$OutputDirectory = ""
 )
 
 $ErrorActionPreference = "Stop"
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-Set-Location $repositoryRoot
+
+if ([string]::IsNullOrWhiteSpace($OutputDirectory)) {
+    if ([string]::IsNullOrWhiteSpace($env:LOCALAPPDATA)) {
+        throw "LOCALAPPDATA is unavailable; pass an absolute OutputDirectory."
+    }
+    $OutputDirectory = Join-Path $env:LOCALAPPDATA "AegisGuard\secrets"
+}
+if (-not [System.IO.Path]::IsPathRooted($OutputDirectory)) {
+    throw "OutputDirectory must be an absolute path outside the repository."
+}
+$outputPath = [System.IO.Path]::GetFullPath($OutputDirectory)
+$repositoryPath = [System.IO.Path]::GetFullPath($repositoryRoot).TrimEnd(
+    [System.IO.Path]::DirectorySeparatorChar,
+    [System.IO.Path]::AltDirectorySeparatorChar
+)
+$repositoryPrefix = $repositoryPath + [System.IO.Path]::DirectorySeparatorChar
+if ($outputPath.Equals(
+        $repositoryPath,
+        [System.StringComparison]::OrdinalIgnoreCase
+    ) -or $outputPath.StartsWith(
+        $repositoryPrefix,
+        [System.StringComparison]::OrdinalIgnoreCase
+    )) {
+    throw "OutputDirectory must be outside the repository."
+}
 
 $opensslCommand = Get-Command openssl -ErrorAction Stop
-$outputPath = Join-Path $repositoryRoot $OutputDirectory
 New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 
-function Invoke-OpenSsl([string[]]$Arguments) {
-    & $opensslCommand.Source @Arguments
+function Set-PrivateDirectoryPermissions([string]$Path) {
+    if ($env:OS -eq "Windows_NT") {
+        $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $acl = Get-Acl -LiteralPath $Path
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($rule in @($acl.Access)) {
+            [void]$acl.RemoveAccessRuleSpecific($rule)
+        }
+        $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $identity.User,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+                [System.Security.AccessControl.InheritanceFlags]::ObjectInherit,
+            [System.Security.AccessControl.PropagationFlags]::None,
+            [System.Security.AccessControl.AccessControlType]::Allow
+        )
+        $acl.SetAccessRule($rule)
+        Set-Acl -LiteralPath $Path -AclObject $acl
+        return
+    }
+
+    & chmod 700 $Path
     if ($LASTEXITCODE -ne 0) {
-        throw "openssl exited with ${LASTEXITCODE}"
+        throw "chmod failed for private directory: $Path"
+    }
+}
+
+function Set-PrivateFilePermissions([string]$Path) {
+    if ($env:OS -eq "Windows_NT") {
+        $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
+        $acl = Get-Acl -LiteralPath $Path
+        $acl.SetAccessRuleProtection($true, $false)
+        foreach ($rule in @($acl.Access)) {
+            [void]$acl.RemoveAccessRuleSpecific($rule)
+        }
+        $rule = [System.Security.AccessControl.FileSystemAccessRule]::new(
+            $identity.User,
+            [System.Security.AccessControl.FileSystemRights]::FullControl,
+            [System.Security.AccessControl.AccessControlType]::Allow
+        )
+        $acl.SetAccessRule($rule)
+        Set-Acl -LiteralPath $Path -AclObject $acl
+        return
+    }
+
+    & chmod 600 $Path
+    if ($LASTEXITCODE -ne 0) {
+        throw "chmod failed for private key: $Path"
+    }
+}
+
+Set-PrivateDirectoryPermissions $outputPath
+
+function Invoke-OpenSsl([string[]]$Arguments) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $output = @(
+            & $opensslCommand.Source @Arguments 2>&1 |
+                ForEach-Object { $_.ToString() }
+        )
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) {
+        throw "openssl exited with ${exitCode}: $($output -join ' ')"
     }
 }
 
@@ -54,4 +140,7 @@ if (-not (Test-Path $adminCertificate)) {
 }
 
 Invoke-OpenSsl @("verify", "-CAfile", $caCertificate, $serverCertificate, $adminCertificate)
-Write-Output "Created demo CA, localhost server certificate and admin client certificate in ignored $OutputDirectory."
+Set-PrivateFilePermissions $caKey
+Set-PrivateFilePermissions $serverKey
+Set-PrivateFilePermissions $adminKey
+Write-Output "Created demo certificates. Private keys and their directory are restricted to the current user."
