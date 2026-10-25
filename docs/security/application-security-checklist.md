@@ -14,6 +14,7 @@ HTTP-specific items remain pending until an administrative API exists.
 | Resource limits | Bound active connections, frame time and movement rate. | Network integration tests | Tested with local defaults |
 | State integrity | Store only validated intent and advance state on the server tick. | `NetworkServiceTest.AuthenticatedMovementUsesServerFixedTicks` | Tested locally |
 | Cryptographic secret handling | Generate random credentials, store digests and clear the connection's credential buffer on close. | `SessionStore` implementation and lifecycle tests | Implemented; no independent cryptographic review |
+| Credential storage at rest | Restrict the plaintext demo token to the current user. | Server smoke test checks the protected Windows DACL or POSIX mode 0600. | Windows permissions tested locally; POSIX check not run locally |
 | Error disclosure | Do not return protocol details on rejected connections. | Client receives a closed connection | Tested locally |
 | Logging and monitoring | Avoid secret-bearing logs; record security counters without player IDs as metric labels. | Metrics and production logging are not implemented | Deferred |
 | Authorization | Enforce administrative roles at the server boundary. | No administrative surface exists | Deferred |

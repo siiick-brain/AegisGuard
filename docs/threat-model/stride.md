@@ -9,7 +9,11 @@ Third-party network edges are out of scope too because they are not implemented.
 ## Assets
 
 - Authoritative match state and outcomes.
-- Session credentials and session lifecycle plus any future signing keys.
+- Session credentials and session lifecycle. The standalone demo writes its
+  reusable token as plaintext hex to the configured file. It restricts the file
+  to the current user with a protected Windows DACL or POSIX mode 0600. The
+  smoke test checks these permissions; host administrators can still read it.
+- Any future signing keys.
 - Availability and bounded resource consumption of the server.
 - Detection evidence and replay data plus any pseudonymous player references.
 - Build/release integrity and dependency provenance plus CI credentials.
