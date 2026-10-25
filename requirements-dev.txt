@@ -3,3 +3,4 @@ hypothesis
 mypy
 pytest
 ruff
+scikit-learn>=1.7.2
