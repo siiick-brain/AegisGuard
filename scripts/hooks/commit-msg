@@ -1,0 +1,12 @@
+#!/bin/sh
+
+message_file=$1
+if [ -z "$message_file" ] || [ ! -f "$message_file" ]; then
+    echo "commit-msg: message file is required" >&2
+    exit 1
+fi
+
+if grep -i -Eq '^[[:space:]]*co-authored-by[[:space:]]*:' "$message_file"; then
+    echo "commit-msg: co-author trailers are not allowed" >&2
+    exit 1
+fi
