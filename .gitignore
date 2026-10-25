@@ -27,5 +27,6 @@ htmlcov/
 *.srl
 tokens*
 /private/
+/secrets/
 /.agents/
 /skills/

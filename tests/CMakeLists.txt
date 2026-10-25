@@ -19,6 +19,7 @@ add_executable(aegisguard_simulation_tests
     unit/network_service_test.cpp
     unit/movement_statistics_test.cpp
     unit/session_store_test.cpp
+    unit/server_config_test.cpp
 )
 
 target_link_libraries(aegisguard_simulation_tests

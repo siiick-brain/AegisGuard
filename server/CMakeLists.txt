@@ -5,9 +5,18 @@ add_library(aegisguard_simulation
     src/replay_session.cpp
     src/rule_detector.cpp
     src/session_store.cpp
+    src/server_config.cpp
     src/simulation.cpp
     src/quadtree.cpp
 )
+
+add_executable(aegisguard_server src/main.cpp)
+target_link_libraries(aegisguard_server PRIVATE aegisguard_simulation)
+if(MSVC)
+    target_compile_options(aegisguard_server PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(aegisguard_server PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
 
 target_include_directories(aegisguard_simulation
     PUBLIC include

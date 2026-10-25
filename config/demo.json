@@ -1,0 +1,22 @@
+{
+  "bind_address": "127.0.0.1",
+  "port": 18443,
+  "admin_port": 18444,
+  "world_width": 100.0,
+  "world_height": 100.0,
+  "max_speed": 5.0,
+  "fixed_delta_seconds": 0.016666666666666666,
+  "maximum_connections": 32,
+  "authentication_timeout_ms": 3000,
+  "frame_timeout_ms": 1000,
+  "movement_rate_capacity": 16.0,
+  "movement_rate_per_second": 60.0,
+  "maximum_sessions": 64,
+  "tls_certificate": "secrets/server.pem",
+  "tls_private_key": "secrets/server.key",
+  "admin_ca_certificate": "secrets/ca.pem",
+  "token_file": "secrets/player.token",
+  "demo_player_id": 7,
+  "initial_x": 10.0,
+  "initial_y": 10.0
+}
