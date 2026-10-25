@@ -9,9 +9,12 @@ provided by MSYS2. This audit used absolute CMake and CTest paths because bare
 command resolution varied between VS Code terminal sessions. The README
 commands require CMake and CTest on the terminal's `PATH` or absolute paths.
 
-Clang/libFuzzer and Docker are unavailable locally. Trivy and Gitleaks are not
-installed. Cosign and ZAP are not installed either. Prometheus and the
+Clang/libFuzzer, Docker and Trivy are unavailable locally. Gitleaks,
+Cosign and ZAP are not installed either. Prometheus and the
 OpenTelemetry Collector are also unavailable. Syft and CodeQL plus Scorecard
-are configured through pinned GitHub Actions. No remote workflow run has
-completed. No scan or SBOM result is claimed. No Scorecard result is claimed
-either.
+are configured through pinned GitHub Actions. The latest remote CI run passed
+Debug and Release build/test jobs and generated a source SBOM in Release.
+CodeQL result upload and Scorecard analysis failed. No container job or Trivy
+result appeared in that run. These runs used commit
+`ee16ab46c3686ac15366692d90d02010c84aa759`, not the current local worktree.
+CodeQL and Scorecard are **Not verified while the repository is private**.

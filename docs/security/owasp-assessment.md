@@ -2,48 +2,51 @@
 
 ## Scope and method
 
-The assessment currently covers the local TLS game service and its movement
-protocol. Tests run against loopback sockets in the C++ test process with an
-ephemeral self-signed certificate. They cover TLS version rejection and
-credential validation. They also test revocation and malformed frames plus
-replay and rate limits. Connection limits and incomplete-frame deadlines are
-tested along with server-tick dispatch.
+The assessment covers the local TLS game service, its movement protocol and
+the separate HTTPS listener for health, status and metrics. Tests run against
+loopback sockets with an ephemeral certificate authority. They cover TLS
+version rejection, credential validation and revocation. They also test
+malformed frames, replay, rate limits, connection limits, incomplete-frame
+deadlines, fixed-tick dispatch and client-certificate authorization for
+status and metrics.
 
 The process follows the trust-boundary and threat review in the
 [STRIDE threat model](../threat-model/stride.md). The ASVS-informed checklist is
 in [application security checklist](application-security-checklist.md).
 OWASP's [WSTG 4.2](https://owasp.org/www-project-web-security-testing-guide/v42/)
-is the selected stable web-testing reference. Its HTTP scenarios do not apply
-to the current game-protocol listener.
+is the selected stable web-testing reference. Only the limited HTTPS status
+surface is in scope for HTTP checks. The game protocol is not HTTP and these
+web tests do not apply to it.
 
 ## Results
 
-Earlier full-suite runs had intermittent network-test process crashes. The
-current worktree registers 70 GoogleTest cases. After unifying MinGW Asio
-thread-backend selection across translation units. The complete suite passed
-10/10 consecutive runs in both Debug and Release. Three previously crash-prone
-network tests passed 20 focused Debug repetitions each; Python utility tests
-passed 2/2. The root cause and fix evidence are recorded in
+The current worktree registers 121 CTest cases. The latest local CTest run
+passed 121/121 and the Python suite passed 14/14. Trusted and untrusted client
+certificates were both checked by the server smoke test. The earlier MinGW Asio
+thread-backend mismatch and its repeated Debug/Release test evidence are
+recorded in
 [known failures](../testing/KNOWN_FAILURES.md). These tests verify the listed
 local controls. They are not a penetration test or an independent security
 review.
 
-No confirmed OWASP findings have been recorded. ZAP baseline and active scans
-were not run because there is no HTTP dashboard or API. CodeQL and Scorecard
-workflows are configured but have not run on GitHub. Trivy and
-Dependency-Check are not configured. Secret scanning and container checks are
-not configured either. There is no supported C++ lockfile or container image.
-There is no infrastructure target.
-Missing scans are not clean results.
+No independent OWASP findings have been recorded. ZAP baseline and active
+scans were not run. The latest remote CI run passed Debug and Release
+build/test jobs and generated a source SBOM in Release. No container job or
+Trivy result appeared in that run. The latest CodeQL result upload and
+Scorecard analysis failed; both are **Not verified while the repository is
+private**. Dependency-Check remains unconfigured because there is no
+supported C++ lockfile. Secret scanning also remains unconfigured. A
+configured scan is not a clean scan result.
 
 ## Deferred work
 
-- Revisit OWASP Top 10 and API Security Top 10 when an HTTP surface exists.
-- Run ZAP only against an isolated local dashboard/API deployment. Record
-  scope separately for baseline and active tests.
-- Re-evaluate Dependency-Check and Trivy when a supported dependency manifest
-  is added. Revisit them when a container image or infrastructure target is
-  added too.
+- Review the three read-only HTTPS routes against the relevant OWASP Top 10
+  and API Security guidance. Do not treat the listener as a general-purpose
+  web application.
+- Run ZAP only against an isolated local HTTPS deployment. Record scope
+  separately for baseline and active tests.
+- Re-evaluate Dependency-Check when a supported dependency manifest is added.
+  Trivy image scanning is configured but has no recorded container run.
 - Evaluate OWASP CRS only if an HTTP reverse proxy or WAF becomes part of the
   deployment. It does not protect the custom game protocol.
 - Keep OWASP Juice Shop isolated as an optional training target; it is not part

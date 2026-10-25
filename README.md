@@ -16,15 +16,18 @@ Milestones 6 and 7 add an experimental offline movement-statistics heuristic
 and a seeded synthetic holdout evaluation. These features do not use game data
 or affect server enforcement.
 
-Milestone 8 adds CI with CodeQL and Scorecard plus source-SBOM workflows. They
-have not run on GitHub. Earlier local runs passed 67/68 Release tests and
-66/68 Debug tests. After fixing inconsistent
-MinGW Asio thread selection the full 70-test CTest suite passed 10/10 runs in
-both Debug and Release. Three focused crash-prone tests also passed 20
-repetitions each. This resolves the observed local test crash on this
-toolchain but does not validate other platforms. A standalone server executable
-and loopback integration tests are present; there is no game client or complete
-match lifecycle. See the
+The latest recorded remote CI run on 2026-10-25 passed its Debug and Release
+build/test jobs and generated a source SBOM in Release. Its commit was
+`ee16ab46c3686ac15366692d90d02010c84aa759`; the run had no container or
+skills-demo job. The latest CodeQL result upload and Scorecard analysis failed.
+CodeQL and Scorecard are **Not verified while the repository is private**.
+These remote runs predate the current local worktree. The latest local run
+passed 123/123 CTest tests and 15 Python tests with two subtests. The MinGW
+Asio thread-selection correction also passed repeated Debug and Release
+suites. This resolves the observed local test crash on this toolchain but does
+not validate other platforms. A standalone server executable and loopback
+integration tests are present; there is no game client or complete match
+lifecycle. See the
 [requirements matrix](docs/requirements-matrix.md) and
 [known failures](docs/testing/KNOWN_FAILURES.md).
 
@@ -57,6 +60,11 @@ match lifecycle. See the
   `/healthz` is unauthenticated; status and metrics require a trusted client
   certificate. JSON Lines logs contain structured lifecycle and HTTP events
   without credential or key fields.
+- A multi-stage Docker image and Compose setup that runs as a numeric
+  non-root user with a read-only root filesystem, all capabilities dropped,
+  no-new-privileges and an explicit seccomp profile. Container and Trivy
+  checks are configured. No container job appeared in the latest remote CI
+  run; local Docker checks are blocked because Docker is unavailable.
 - A rule detector for out-of-range movement and replayed sequences plus rate-limit
   violations. Findings include a reason and rolling count. Recommendations can
   escalate from review to throttle or disconnect. The detector applies only
@@ -143,15 +151,18 @@ uses Boost Software License 1.0. OpenSSL 3.6.1 uses Apache License 2.0.
 - [OWASP assessment](docs/security/owasp-assessment.md)
 - [Security requirements matrix](docs/security/requirements-verification.md)
 - [CI and software supply chain](docs/operations/ci-and-supply-chain.md)
+- [Local container deployment](docs/operations/container-deployment.md)
+- [Cloudflare deployment boundary](docs/operations/cloudflare.md)
 
-The TLS tests use an ephemeral self-signed certificate. The test client
-disables certificate verification. These tests verify local service behavior
-but not certificate issuance or production trust configuration. The libFuzzer
+The loopback smoke test uses an ephemeral CA and verifies the server
+certificate against it. This verifies local service behavior but not
+certificate issuance or production trust configuration. The libFuzzer
 harness is configured for Clang on Linux or macOS. It has not run in the
-current Windows environment. CodeQL and Scorecard workflows are configured
-but have not run remotely. ZAP and Trivy remain deferred. So do
-Dependency-Check and Prometheus. OpenTelemetry is also deferred until
-supported targets and inputs exist.
+current Windows environment. The latest CodeQL result upload and Scorecard
+analysis failed; both are **Not verified while the repository is private**.
+No container job or Trivy result appeared in the latest remote CI run. ZAP and
+Dependency-Check remain deferred. So does Prometheus. OpenTelemetry is also
+deferred until supported targets and inputs exist.
 
 ## Design and project status
 

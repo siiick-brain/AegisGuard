@@ -78,6 +78,6 @@ settings. It scans the image with Trivy for high and critical OS/library
 vulnerabilities and retains inspection and scan output as workflow artifacts.
 
 Docker and Trivy are unavailable on the current Windows workstation. The CI
-job is configured but has not run remotely in this work session, so its image
-build, health result and vulnerability scan remain unverified until the
-workflow runs. No clean scan result is claimed.
+job is configured, but no container job appeared in the latest recorded
+remote CI run. Its image build, health result and vulnerability scan remain
+unverified. No clean scan result is claimed.

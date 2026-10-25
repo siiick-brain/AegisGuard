@@ -99,11 +99,10 @@ occurred after GoogleTest had printed passing results. GDB showed a hang during
 separate run faulted in `_InterlockedExchange` with an address matching the
 Windows freed-heap pattern. These are observations and not a confirmed root cause.
 
-TLS tests generate an ephemeral certificate in-process and disable
-verification in the test client. The installed `mkcert` certificate is for
-local external clients and does not affect these tests. The tests therefore do
-not validate production certificate trust or deployment. They do not validate
-key rotation either.
+Loopback tests use ephemeral test certificates. The Python smoke test verifies
+the server certificate against its generated test CA. This validates local
+TLS behavior, not production certificate issuance, trust configuration or
+deployment. Key rotation is not yet validated.
 
 ### Expected TLS result before calling this fixed
 
@@ -123,13 +122,13 @@ thread-model correction did not change TLS shutdown logic.
 
 ## Project execution status
 
-The current source and test targets build. The non-network tests above pass.
-AegisGuard is not yet a runnable standalone game server. CMake currently
-builds the simulation/network code as a library plus test and optional
-benchmark executables. There is no server entry point or client. Deployment
-configuration and production certificate setup are also absent. Local TLS
-integration tests run a test service and client on loopback. That is not
-equivalent to running a complete game.
+The source includes a runnable standalone server, an example configuration, a
+TLS game listener and a separate HTTPS health/status listener. The local
+container image and Compose service are configured but have not been built or
+run on this workstation. The repository has no game client or complete match
+lifecycle. Production certificate provisioning remains absent. Local TLS
+integration tests run clients on loopback and do not establish production
+readiness.
 
 The following checks are unverified or unavailable:
 
@@ -137,13 +136,16 @@ The following checks are unverified or unavailable:
 - Line and branch coverage; `gcov` is installed but a report has not been
   generated.
 - ThreadSanitizer and other LLVM sanitizers.
-- Trivy and Dependency-Check plus container and secret scans are unverified.
-  Infrastructure scans are unverified too. CI workflows are configured but no
-  GitHub workflow run or scan result exists yet.
+- Docker and Trivy are unavailable locally. The Linux CI container build/run/
+  inspect and Trivy checks are configured, but the latest recorded remote CI
+  run did not include a container job. No remote image scan result is recorded.
+  Dependency-Check, secret scanning and infrastructure scans remain
+  unconfigured or deferred.
 - Service load and soak tests remain unverified. Fault injection plus backup
   and restore tests remain unverified too.
-- Dashboard/API authorization and accessibility remain unverified. ZAP testing
-  remains unverified too.
+- Broader HTTP security testing and ZAP remain unverified. The limited HTTPS
+  health/status routes have loopback tests; there is no dashboard or browser
+  accessibility target.
 - Real gameplay traces and calibrated statistical detection remain unverified.
   ML evaluation remains unverified too.
 
