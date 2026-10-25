@@ -63,19 +63,19 @@ TEST(ServerConfigTest, ParsesPortAndProvisioningPaths) {
         "bind_address": "127.0.0.1",
         "port": 18443,
         "admin_port": 8443,
-        "tls_certificate": "secrets/server.pem",
-        "tls_private_key": "secrets/server.key",
-        "admin_ca_certificate": "secrets/ca.pem",
-        "token_file": "secrets/player.token",
+        "tls_certificate": "fixture/server.pem",
+        "tls_private_key": "fixture/server.key",
+        "admin_ca_certificate": "fixture/ca.pem",
+        "token_file": "fixture/player.token",
         "maximum_connections": 4
     })");
 
     EXPECT_EQ(config.port, 18443U);
     EXPECT_EQ(config.admin_port, 8443U);
-    EXPECT_EQ(config.tls_certificate, "secrets/server.pem");
-    EXPECT_EQ(config.tls_private_key, "secrets/server.key");
-    EXPECT_EQ(config.admin_ca_certificate, "secrets/ca.pem");
-    EXPECT_EQ(config.token_file, "secrets/player.token");
+    EXPECT_EQ(config.tls_certificate, "fixture/server.pem");
+    EXPECT_EQ(config.tls_private_key, "fixture/server.key");
+    EXPECT_EQ(config.admin_ca_certificate, "fixture/ca.pem");
+    EXPECT_EQ(config.token_file, "fixture/player.token");
     EXPECT_EQ(config.maximum_connections, 4U);
 }
 

@@ -25,6 +25,7 @@ The server configuration expands `${LOCALAPPDATA}` in configured paths.
 Compose also accepts `AEGISGUARD_SERVER_CERT_FILE`,
 `AEGISGUARD_SERVER_KEY_FILE` and `AEGISGUARD_ADMIN_CA_FILE` overrides for
 temporary test files or non-Windows hosts.
+Demo keys must never live inside the repository or a cloud-synced folder.
 
 Do not commit real certificates, private keys or tokens. The container
 configuration example refers to the Compose-mounted files and writes the

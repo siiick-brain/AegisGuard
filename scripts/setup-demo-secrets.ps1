@@ -35,6 +35,9 @@ New-Item -ItemType Directory -Force -Path $outputPath | Out-Null
 
 function Set-PrivateDirectoryPermissions([string]$Path) {
     if ($env:OS -eq "Windows_NT") {
+        if (Test-PrivateAcl -Path $Path -Directory) {
+            return
+        }
         $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
         $acl = Get-Acl -LiteralPath $Path
         $acl.SetAccessRuleProtection($true, $false)
@@ -51,6 +54,9 @@ function Set-PrivateDirectoryPermissions([string]$Path) {
         )
         $acl.SetAccessRule($rule)
         Set-Acl -LiteralPath $Path -AclObject $acl
+        if (-not (Test-PrivateAcl -Path $Path -Directory)) {
+            throw "Private directory ACL is not restricted to the current user: $Path"
+        }
         return
     }
 
@@ -62,6 +68,9 @@ function Set-PrivateDirectoryPermissions([string]$Path) {
 
 function Set-PrivateFilePermissions([string]$Path) {
     if ($env:OS -eq "Windows_NT") {
+        if (Test-PrivateAcl -Path $Path) {
+            return
+        }
         $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent()
         $acl = Get-Acl -LiteralPath $Path
         $acl.SetAccessRuleProtection($true, $false)
@@ -75,6 +84,9 @@ function Set-PrivateFilePermissions([string]$Path) {
         )
         $acl.SetAccessRule($rule)
         Set-Acl -LiteralPath $Path -AclObject $acl
+        if (-not (Test-PrivateAcl -Path $Path)) {
+            throw "Private key ACL is not restricted to the current user: $Path"
+        }
         return
     }
 
@@ -82,6 +94,40 @@ function Set-PrivateFilePermissions([string]$Path) {
     if ($LASTEXITCODE -ne 0) {
         throw "chmod failed for private key: $Path"
     }
+}
+
+function Test-PrivateAcl(
+    [string]$Path,
+    [switch]$Directory
+) {
+    $identity = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+    $acl = Get-Acl -LiteralPath $Path
+    if (-not $acl.AreAccessRulesProtected) {
+        return $false
+    }
+    $rules = @($acl.Access)
+    if ($rules.Count -ne 1) {
+        return $false
+    }
+    $rule = $rules[0]
+    $ruleIdentity = $rule.IdentityReference.Translate(
+        [System.Security.Principal.SecurityIdentifier]
+    ).Value
+    if ($ruleIdentity -ne $identity -or
+        $rule.AccessControlType -ne
+            [System.Security.AccessControl.AccessControlType]::Allow -or
+        $rule.FileSystemRights -ne
+            [System.Security.AccessControl.FileSystemRights]::FullControl) {
+        return $false
+    }
+    if ($Directory) {
+        $expectedInheritance =
+            [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor
+            [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+        return $rule.InheritanceFlags -eq $expectedInheritance
+    }
+    return $rule.InheritanceFlags -eq
+        [System.Security.AccessControl.InheritanceFlags]::None
 }
 
 Set-PrivateDirectoryPermissions $outputPath
@@ -143,4 +189,4 @@ Invoke-OpenSsl @("verify", "-CAfile", $caCertificate, $serverCertificate, $admin
 Set-PrivateFilePermissions $caKey
 Set-PrivateFilePermissions $serverKey
 Set-PrivateFilePermissions $adminKey
-Write-Output "Created demo certificates. Private keys and their directory are restricted to the current user."
+Write-Output "Verified demo certificates and keys. Private keys and their directory are restricted to the current user."
