@@ -1,16 +1,19 @@
 # Property and differential testing
 
-The Quadtree test uses a fixed seed (`0xA3615`) and performs 600 generated
-insert/update/remove/query steps. After each step a simple `std::map`
-scan acts as an independent oracle for the query result and entity count.
-Boundary and duplicate-position cases have separate tests. Degenerate-range
-and invalid-input cases have separate tests too.
+RapidCheck is pinned to commit
+`2c3c4365aca21ef4e612768fdc95b1ce8b39a651`. Seven registered properties
+compare quadtree operations, movement-frame round trips, arbitrary decoder
+bytes, HELLO versions, token-bucket budgets, sequence acceptance and session
+state transitions against expected invariants or reference models.
 
-Protocol tests currently use specification-built fixtures and negative cases.
-The libFuzzer harness supplements them when a supported Clang environment is
-available. RapidCheck is not added because the existing deterministic generator
-already covers the Quadtree state sequence; additional dependencies will be
-considered when a second stateful property suite exists.
+The Quadtree property generates insert, update, remove and query operations
+and compares each result with a `std::map` reference model. A separate
+deterministic test uses seed `0xA3615` for 600 operations. The protocol
+properties check round trips, malformed input handling and strict sequence
+ordering. The rate and session properties use injected deterministic time.
 
-Failure seeds are fixed in the test source. A failing sequence should be
-reduced to a small reproducer and retained as a regression case.
+Run the properties with
+`ctest --test-dir build-cov-local --output-on-failure -R Property`. The latest
+run passed 7/7 tests in 3.83 seconds. RapidCheck prints its reproduction seed
+when a property fails. Keep a reduced named GoogleTest regression for each
+production counterexample.

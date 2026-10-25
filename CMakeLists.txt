@@ -18,6 +18,15 @@ include(CTest)
 
 option(AG_BUILD_BENCHMARKS "Build spatial-engine benchmarks" OFF)
 option(AG_BUILD_FUZZERS "Build libFuzzer targets (Clang on Linux/macOS)" OFF)
+option(AG_ENABLE_COVERAGE "Enable gcov-compatible coverage instrumentation" OFF)
+
+if(AG_ENABLE_COVERAGE)
+    if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+        message(FATAL_ERROR "AG_ENABLE_COVERAGE requires GCC/gcov")
+    endif()
+    add_compile_options(--coverage -O0 -g)
+    add_link_options(--coverage)
+endif()
 
 add_subdirectory(server)
 
@@ -33,21 +42,33 @@ if(AG_BUILD_FUZZERS)
     if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "Clang" OR WIN32)
         message(FATAL_ERROR "AG_BUILD_FUZZERS requires Clang on Linux or macOS")
     endif()
-    add_executable(aegisguard_protocol_fuzz
-        tests/fuzz/protocol_fuzz.cpp
-        server/src/protocol.cpp
-    )
-    target_include_directories(aegisguard_protocol_fuzz PRIVATE
-        server/include
-        ${ASIO_INCLUDE_DIR}
-    )
-    target_compile_definitions(aegisguard_protocol_fuzz PRIVATE ASIO_STANDALONE)
-    target_compile_options(aegisguard_protocol_fuzz PRIVATE
-        -Wall -Wextra -Wpedantic -Werror
-        -fsanitize=fuzzer,address,undefined
+    target_compile_options(aegisguard_simulation PRIVATE
+        -fsanitize=fuzzer-no-link,address,undefined
         -fno-omit-frame-pointer
     )
-    target_link_options(aegisguard_protocol_fuzz PRIVATE
-        -fsanitize=fuzzer,address,undefined
+    target_link_options(aegisguard_simulation INTERFACE
+        -fsanitize=address,undefined
     )
+    foreach(fuzz_target IN ITEMS decoder hello config)
+        add_executable(aegisguard_fuzz_${fuzz_target}
+            tests/fuzz/${fuzz_target}_fuzz.cpp
+        )
+        target_link_libraries(aegisguard_fuzz_${fuzz_target}
+            PRIVATE aegisguard_simulation
+        )
+        target_compile_options(aegisguard_fuzz_${fuzz_target} PRIVATE
+            -Wall -Wextra -Wpedantic -Werror
+            -fsanitize=fuzzer,address,undefined
+            -fno-omit-frame-pointer
+        )
+        target_link_options(aegisguard_fuzz_${fuzz_target} PRIVATE
+            -fsanitize=fuzzer,address,undefined
+        )
+        add_test(
+            NAME FuzzRegression_${fuzz_target}
+            COMMAND aegisguard_fuzz_${fuzz_target}
+                ${CMAKE_CURRENT_SOURCE_DIR}/tests/fuzz/regression
+                -runs=0
+        )
+    endforeach()
 endif()
