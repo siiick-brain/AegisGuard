@@ -8,6 +8,21 @@
 #include <openssl/ssl.h>
 #include <openssl/x509.h>
 
+#ifdef _WIN32
+#include <windows.h>
+#include <aclapi.h>
+#else
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
+
+#include <cerrno>
+#include <cstddef>
+#include <limits>
+#include <system_error>
+#include <vector>
+
 #include <array>
 #include <chrono>
 #include <csignal>
@@ -116,14 +131,183 @@ void write_demo_token(const std::string& path,
     if (!token_path.parent_path().empty()) {
         std::filesystem::create_directories(token_path.parent_path());
     }
-    std::ofstream output(token_path, std::ios::binary | std::ios::trunc);
-    if (!output) {
-        throw std::runtime_error("could not create configured token file");
+    const std::string contents = token_hex(credential) + '\n';
+
+#ifdef _WIN32
+    class ScopedHandle {
+    public:
+        explicit ScopedHandle(HANDLE handle) : handle_(handle) {}
+        ~ScopedHandle() {
+            if (handle_ != INVALID_HANDLE_VALUE) {
+                CloseHandle(handle_);
+            }
+        }
+        ScopedHandle(const ScopedHandle&) = delete;
+        ScopedHandle& operator=(const ScopedHandle&) = delete;
+        [[nodiscard]] HANDLE get() const { return handle_; }
+
+    private:
+        HANDLE handle_;
+    };
+    class ScopedLocalMemory {
+    public:
+        explicit ScopedLocalMemory(HLOCAL memory) : memory_(memory) {}
+        ~ScopedLocalMemory() {
+            if (memory_ != nullptr) {
+                LocalFree(memory_);
+            }
+        }
+        ScopedLocalMemory(const ScopedLocalMemory&) = delete;
+        ScopedLocalMemory& operator=(const ScopedLocalMemory&) = delete;
+        [[nodiscard]] HLOCAL get() const { return memory_; }
+
+    private:
+        HLOCAL memory_;
+    };
+
+    HANDLE process_token{};
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &process_token)) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()), std::system_category(),
+            "could not open process token");
     }
-    output << token_hex(credential) << '\n';
-    if (!output) {
-        throw std::runtime_error("could not write configured token file");
+    ScopedHandle token_handle(process_token);
+
+    DWORD token_user_size = 0;
+    SetLastError(ERROR_SUCCESS);
+    GetTokenInformation(
+        token_handle.get(), TokenUser, nullptr, 0, &token_user_size);
+    if (GetLastError() != ERROR_INSUFFICIENT_BUFFER || token_user_size == 0) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()), std::system_category(),
+            "could not size process user information");
     }
+    std::vector<std::byte> token_user_data(token_user_size);
+    if (!GetTokenInformation(
+            token_handle.get(), TokenUser, token_user_data.data(),
+            token_user_size, &token_user_size)) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()), std::system_category(),
+            "could not read process user information");
+    }
+    const auto* const token_user =
+        reinterpret_cast<const TOKEN_USER*>(token_user_data.data());
+
+    EXPLICIT_ACCESSW access{};
+    access.grfAccessPermissions = FILE_ALL_ACCESS;
+    access.grfAccessMode = SET_ACCESS;
+    access.grfInheritance = NO_INHERITANCE;
+    access.Trustee.TrusteeForm = TRUSTEE_IS_SID;
+    access.Trustee.TrusteeType = TRUSTEE_IS_USER;
+    access.Trustee.ptstrName =
+        reinterpret_cast<LPWSTR>(token_user->User.Sid);
+    PACL user_dacl = nullptr;
+    const DWORD acl_result = SetEntriesInAclW(1, &access, nullptr, &user_dacl);
+    if (acl_result != ERROR_SUCCESS) {
+        throw std::system_error(
+            static_cast<int>(acl_result), std::system_category(),
+            "could not create token-file ACL");
+    }
+    ScopedLocalMemory dacl_memory(user_dacl);
+
+    SECURITY_DESCRIPTOR security_descriptor{};
+    if (!InitializeSecurityDescriptor(
+            &security_descriptor, SECURITY_DESCRIPTOR_REVISION) ||
+        !SetSecurityDescriptorDacl(
+            &security_descriptor, TRUE, user_dacl, FALSE) ||
+        !SetSecurityDescriptorControl(
+            &security_descriptor, SE_DACL_PROTECTED, SE_DACL_PROTECTED)) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()), std::system_category(),
+            "could not prepare token-file security descriptor");
+    }
+    SECURITY_ATTRIBUTES security_attributes{
+        sizeof(SECURITY_ATTRIBUTES), &security_descriptor, FALSE};
+    const HANDLE raw_file = CreateFileW(
+        token_path.c_str(), GENERIC_WRITE | WRITE_DAC, 0,
+        &security_attributes, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (raw_file == INVALID_HANDLE_VALUE) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()), std::system_category(),
+            "could not create configured token file");
+    }
+    ScopedHandle file_handle(raw_file);
+
+    const DWORD security_result = SetSecurityInfo(
+        file_handle.get(), SE_FILE_OBJECT,
+        DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+        nullptr, nullptr, user_dacl, nullptr);
+    if (security_result != ERROR_SUCCESS) {
+        throw std::system_error(
+            static_cast<int>(security_result), std::system_category(),
+            "could not restrict configured token file");
+    }
+    LARGE_INTEGER beginning{};
+    if (!SetFilePointerEx(file_handle.get(), beginning, nullptr, FILE_BEGIN) ||
+        !SetEndOfFile(file_handle.get())) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()), std::system_category(),
+            "could not prepare configured token file");
+    }
+    DWORD bytes_written = 0;
+    if (contents.size() > std::numeric_limits<DWORD>::max() ||
+        !WriteFile(file_handle.get(), contents.data(),
+                   static_cast<DWORD>(contents.size()), &bytes_written, nullptr) ||
+        bytes_written != contents.size() ||
+        !FlushFileBuffers(file_handle.get())) {
+        throw std::system_error(
+            static_cast<int>(GetLastError()), std::system_category(),
+            "could not write configured token file");
+    }
+#else
+    int flags = O_WRONLY | O_CREAT;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+#ifdef O_NOFOLLOW
+    flags |= O_NOFOLLOW;
+#endif
+    const int raw_file = ::open(
+        token_path.c_str(), flags, S_IRUSR | S_IWUSR);
+    if (raw_file == -1) {
+        throw std::system_error(
+            errno, std::system_category(), "could not create configured token file");
+    }
+    class ScopedFileDescriptor {
+    public:
+        explicit ScopedFileDescriptor(int descriptor) : descriptor_(descriptor) {}
+        ~ScopedFileDescriptor() {
+            if (descriptor_ >= 0) {
+                ::close(descriptor_);
+            }
+        }
+        ScopedFileDescriptor(const ScopedFileDescriptor&) = delete;
+        ScopedFileDescriptor& operator=(const ScopedFileDescriptor&) = delete;
+        [[nodiscard]] int get() const { return descriptor_; }
+
+    private:
+        int descriptor_;
+    };
+    ScopedFileDescriptor file(raw_file);
+    if (::fchmod(file.get(), S_IRUSR | S_IWUSR) != 0 ||
+        ::ftruncate(file.get(), 0) != 0) {
+        throw std::system_error(
+            errno, std::system_category(), "could not restrict configured token file");
+    }
+    std::size_t offset = 0;
+    while (offset < contents.size()) {
+        const ssize_t written = ::write(
+            file.get(), contents.data() + offset, contents.size() - offset);
+        if (written < 0 && errno == EINTR) {
+            continue;
+        }
+        if (written <= 0) {
+            throw std::system_error(
+                errno, std::system_category(), "could not write configured token file");
+        }
+        offset += static_cast<std::size_t>(written);
+    }
+#endif
 }
 
 class AdminConnection final : public std::enable_shared_from_this<AdminConnection> {

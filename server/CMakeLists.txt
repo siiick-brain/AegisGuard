@@ -14,6 +14,9 @@ add_library(aegisguard_simulation
 
 add_executable(aegisguard_server src/main.cpp)
 target_link_libraries(aegisguard_server PRIVATE aegisguard_simulation)
+if(WIN32)
+    target_link_libraries(aegisguard_server PRIVATE advapi32)
+endif()
 if(MSVC)
     target_compile_options(aegisguard_server PRIVATE /W4 /WX /permissive-)
 else()

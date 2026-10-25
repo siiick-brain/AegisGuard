@@ -1,5 +1,6 @@
 import json
 import os
+import stat
 import signal
 import socket
 import ssl
@@ -112,6 +113,53 @@ def https_get(port: int, ca_cert: Path, path: str,
     return int(status_line.split()[1]), body
 
 
+def assert_private_token_permissions(
+    test_case: unittest.TestCase, token_path: Path
+) -> None:
+    if os.name == "nt":
+        command = r"""
+$path = $env:AEGISGUARD_TOKEN_ACL_PATH
+$acl = Get-Acl -LiteralPath $path
+$userSid = [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+$rules = @($acl.Access)
+if (-not $acl.AreAccessRulesProtected -or $rules.Count -ne 1) {
+    $entries = ($rules | ForEach-Object {
+        "$($_.IdentityReference.Value):$($_.FileSystemRights):inherited=$($_.IsInherited)"
+    }) -join "; "
+    throw "Token ACL protected=$($acl.AreAccessRulesProtected) rules=$($rules.Count): $entries"
+}
+$rule = $rules[0]
+$ruleSid = $rule.IdentityReference.Translate(
+    [System.Security.Principal.SecurityIdentifier]
+).Value
+if ($ruleSid -ne $userSid -or
+    $rule.AccessControlType -ne
+        [System.Security.AccessControl.AccessControlType]::Allow -or
+    $rule.FileSystemRights -ne
+        [System.Security.AccessControl.FileSystemRights]::FullControl) {
+    throw "Token ACL rule is not current-user full control."
+}
+"""
+        result = subprocess.run(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+             command],
+            capture_output=True,
+            text=True,
+            env={
+                **os.environ,
+                "AEGISGUARD_TOKEN_ACL_PATH": str(token_path),
+            },
+            timeout=10,
+        )
+        test_case.assertEqual(
+            result.returncode, 0, result.stdout + result.stderr
+        )
+        return
+
+    mode = stat.S_IMODE(token_path.stat().st_mode)
+    test_case.assertEqual(mode, stat.S_IRUSR | stat.S_IWUSR)
+
+
 class ServerSmokeTests(unittest.TestCase):
     def test_valid_token_admin_mtls_and_signal_shutdown(self) -> None:
         server_candidates = [
@@ -176,6 +224,8 @@ class ServerSmokeTests(unittest.TestCase):
                         last_error = error
                         time.sleep(0.1)
                 self.assertEqual(health_status, 200, f"health failed: {last_error}")
+                assert_private_token_permissions(self, token_path)
+                print("Demo token file permissions: owner only")
                 self.assertEqual(https_get(admin_port, ca_cert, "/status")[0], 401)
                 self.assertEqual(
                     https_get(admin_port, ca_cert, "/status", admin_cert, admin_key)[0],
