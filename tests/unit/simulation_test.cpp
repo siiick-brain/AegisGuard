@@ -116,5 +116,90 @@ TEST(SimulationTest, ReturnsNoStateForUnknownPlayers) {
     EXPECT_FALSE(simulation.player(42).has_value());
 }
 
+TEST(SimulationTest, FireDamagesTheNearestServerOwnedTarget) {
+    Simulation simulation;
+    ASSERT_EQ(simulation.add_player(1, {10.0, 10.0}), SimulationError::none);
+    ASSERT_EQ(simulation.add_player(2, {15.0, 10.0}), SimulationError::none);
+    ASSERT_EQ(simulation.add_player(3, {18.0, 10.0}), SimulationError::none);
+
+    const FireResult result = simulation.fire(FireIntent{1, 0.0, 0});
+
+    ASSERT_EQ(result.error, SimulationError::none);
+    ASSERT_EQ(result.hit_player_id, 2U);
+    EXPECT_EQ(simulation.player(1)->health, 100U);
+    EXPECT_EQ(simulation.player(2)->health, 75U);
+    EXPECT_EQ(simulation.player(3)->health, 100U);
+}
+
+TEST(SimulationTest, FireIncludesTargetsAtMaximumWeaponRange) {
+    Simulation simulation;
+    ASSERT_EQ(simulation.add_player(1, {10.0, 10.0}), SimulationError::none);
+    ASSERT_EQ(simulation.add_player(2, {30.0, 10.0}), SimulationError::none);
+
+    const FireResult result = simulation.fire(FireIntent{1, 0.0, 0});
+
+    ASSERT_EQ(result.error, SimulationError::none);
+    EXPECT_EQ(result.hit_player_id, 2U);
+    EXPECT_EQ(simulation.player(2)->health, 75U);
+}
+
+TEST(SimulationTest, RewindUsesServerRecordedTargetPosition) {
+    SimulationConfig config;
+    config.maximum_rewind_ticks = 12;
+    Simulation simulation(config);
+    ASSERT_EQ(simulation.add_player(1, {10.0, 10.0}), SimulationError::none);
+    ASSERT_EQ(simulation.add_player(2, {15.0, 10.0}), SimulationError::none);
+    const std::array inputs{PlayerInput{2, {0.0, 1.0}}};
+    for (int tick = 0; tick < 7; ++tick) {
+        ASSERT_EQ(simulation.step(inputs), SimulationError::none);
+    }
+    ASSERT_GT(simulation.player(2)->position.y, 10.5);
+
+    const FireResult result = simulation.fire(FireIntent{1, 0.0, 0});
+
+    ASSERT_EQ(result.error, SimulationError::none);
+    EXPECT_EQ(result.hit_player_id, 2U);
+    EXPECT_EQ(simulation.player(2)->health, 75U);
+}
+
+TEST(SimulationTest, RejectsFutureAndStaleFireTicksWithoutChangingState) {
+    SimulationConfig config;
+    config.maximum_rewind_ticks = 2;
+    Simulation simulation(config);
+    ASSERT_EQ(simulation.add_player(1, {10.0, 10.0}), SimulationError::none);
+    ASSERT_EQ(simulation.add_player(2, {15.0, 10.0}), SimulationError::none);
+
+    EXPECT_EQ(
+        simulation.fire(FireIntent{1, 0.0, 1}).error,
+        SimulationError::future_fire_tick);
+    for (int tick = 0; tick < 3; ++tick) {
+        ASSERT_EQ(simulation.step({}), SimulationError::none);
+    }
+    EXPECT_EQ(
+        simulation.fire(FireIntent{1, 0.0, 0}).error,
+        SimulationError::stale_fire_tick);
+    EXPECT_EQ(simulation.player(2)->health, 100U);
+}
+
+TEST(SimulationTest, RespawnsEliminatedPlayerAtItsServerOwnedSpawnPoint) {
+    SimulationConfig config;
+    config.weapon_damage = 100;
+    config.respawn_delay_ticks = 2;
+    Simulation simulation(config);
+    ASSERT_EQ(simulation.add_player(1, {10.0, 10.0}), SimulationError::none);
+    ASSERT_EQ(simulation.add_player(2, {15.0, 10.0}), SimulationError::none);
+
+    const FireResult result = simulation.fire(FireIntent{1, 0.0, 0});
+
+    ASSERT_EQ(result.hit_player_id, 2U);
+    ASSERT_EQ(simulation.player(2)->health, 0U);
+    ASSERT_EQ(simulation.step({}), SimulationError::none);
+    EXPECT_EQ(simulation.player(2)->health, 0U);
+    ASSERT_EQ(simulation.step({}), SimulationError::none);
+    EXPECT_EQ(simulation.player(2)->health, 100U);
+    EXPECT_DOUBLE_EQ(simulation.player(2)->position.x, 15.0);
+    EXPECT_DOUBLE_EQ(simulation.player(2)->position.y, 10.0);
+}
+
 }  // namespace
 }  // namespace aegisguard

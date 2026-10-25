@@ -68,7 +68,8 @@ ProtocolHeader decode_protocol_header(
     if (bytes[2] != kProtocolVersion) {
         return {ProtocolError::unsupported_version, 0, 0, 0};
     }
-    if (bytes[3] != kHelloMessageType && bytes[3] != kMoveMessageType) {
+    if (bytes[3] != kHelloMessageType && bytes[3] != kMoveMessageType &&
+        bytes[3] != kFireMessageType) {
         return {ProtocolError::unknown_message_type, 0, 0, 0};
     }
 
@@ -76,15 +77,18 @@ ProtocolHeader decode_protocol_header(
     if (payload_size > kMovePayloadSize) {
         return {ProtocolError::payload_too_large, 0, 0, 0};
     }
-    const std::size_t expected_size = bytes[3] == kHelloMessageType
-        ? kHelloPayloadSize
-        : kMovePayloadSize;
+    std::size_t expected_size = kFirePayloadSize;
+    if (bytes[3] == kHelloMessageType) {
+        expected_size = kHelloPayloadSize;
+    } else if (bytes[3] == kMoveMessageType) {
+        expected_size = kMovePayloadSize;
+    }
     if (payload_size != expected_size) {
         return {ProtocolError::invalid_payload_length, 0, 0, 0};
     }
     const std::uint64_t sequence = read_u64(bytes.data() + 6);
     if ((bytes[3] == kHelloMessageType && sequence != 0) ||
-        (bytes[3] == kMoveMessageType && sequence == 0)) {
+        (bytes[3] != kHelloMessageType && sequence == 0)) {
         return {ProtocolError::invalid_sequence, 0, 0, 0};
     }
     return {ProtocolError::none, bytes[3],
@@ -145,6 +149,32 @@ DecodeResult decode_move_frame(std::span<const std::uint8_t> bytes) noexcept {
             static_cast<double>(angle) * kAngleScale,
             static_cast<double>(position_x) / kPositionScale,
             static_cast<double>(position_y) / kPositionScale}};
+}
+
+FireDecodeResult decode_fire_frame(
+    std::span<const std::uint8_t> bytes) noexcept {
+    const ProtocolHeader header = decode_protocol_header(bytes);
+    if (header.error != ProtocolError::none) {
+        return {header.error, {}};
+    }
+    if (header.message_type != kFireMessageType) {
+        return {ProtocolError::unknown_message_type, {}};
+    }
+    const std::size_t frame_size = kProtocolHeaderSize + kFirePayloadSize;
+    if (bytes.size() < frame_size) {
+        return {ProtocolError::incomplete_frame, {}};
+    }
+    if (bytes.size() > frame_size) {
+        return {ProtocolError::trailing_bytes, {}};
+    }
+
+    return {
+        ProtocolError::none,
+        FireFrame{
+            header.sequence,
+            static_cast<double>(
+                read_u16(bytes.data() + kProtocolHeaderSize)) * kAngleScale,
+            read_u64(bytes.data() + kProtocolHeaderSize + 2)}};
 }
 
 ProtocolError SequenceGuard::accept(std::uint64_t sequence) noexcept {

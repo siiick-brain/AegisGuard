@@ -17,22 +17,22 @@ service. The referenced `io_context` and TLS context must remain alive.
 The session store and simulation must remain alive as well. The error callback
 must remain alive until service shutdown has completed.
 
-## Version 2 protocol
+## Version 3 protocol
 
 After the TLS handshake and 32-byte session credential, the client must send
-one versioned HELLO before movement. Both messages use a 14-byte common
-header. Multi-byte integers use network byte order. Version 1 clients are
-rejected; there is no downgrade or implicit version negotiation.
+one versioned HELLO before game intents. Every message uses a 14-byte common
+header. Multi-byte integers use network byte order. Version 1 and version 2
+clients are rejected; there is no downgrade or implicit version negotiation.
 
 | Offset | Length | Field | Accepted values |
 |---:|---:|---|---|
 | 0 | 2 | Magic | ASCII `AG` |
-| 2 | 1 | Schema version | `2` |
-| 3 | 1 | Message type | `0` HELLO; `1` movement |
-| 4 | 2 | Payload length | `2` for HELLO; `14` for movement |
-| 6 | 8 | Sequence number | Zero for HELLO; nonzero and strictly increasing for movement |
+| 2 | 1 | Schema version | `3` |
+| 3 | 1 | Message type | `0` HELLO; `1` movement; `2` FIRE intent |
+| 4 | 2 | Payload length | `2` for HELLO; `14` for movement; `10` for FIRE |
+| 6 | 8 | Sequence number | Zero for HELLO; nonzero and strictly increasing for movement and FIRE |
 
-The HELLO payload is one unsigned 16-bit protocol version. It must equal `2`.
+The HELLO payload is one unsigned 16-bit protocol version. It must equal `3`.
 Its frame is exactly 16 bytes.
 
 The movement payload is exactly 14 bytes:
@@ -53,12 +53,27 @@ cap and world bounds. The frame carries no player ID, score or authority to
 change game state. The authenticated session binds the connection to a
 server-owned player before intent is dispatched.
 
+The FIRE payload is exactly 10 bytes:
+
+| Payload offset | Length | Field | Accepted values |
+|---:|---:|---|---|
+| 0 | 2 | Aim angle | Unsigned turn fraction mapped to `[0, 2π)` |
+| 2 | 8 | Tick reference | Server simulation tick; must not be future-dated or older than the rewind window |
+
+The complete FIRE frame is exactly 24 bytes. It carries no target ID, health
+value or claimed hit result. The authenticated session supplies the shooter
+identity. The server checks the referenced position snapshot, queries the
+Quadtree for candidate targets and performs an exact ray-to-target test. The
+server applies damage and schedules respawn; no client field can set health or
+declare a hit.
+
 The parser rejects incomplete or oversized payloads and extra trailing bytes.
 It rejects unknown versions or message types, unsupported HELLO values, zero
-movement sequences and out-of-range direction. The maximum frame buffer is
-fixed at 28 bytes. The decoder allocates no memory based on a client length
-field. The listener validates the 14-byte header before reading the bounded
-payload. A frame deadline covers the header and payload reads.
+game-intent sequences, out-of-range direction and FIRE payloads containing
+extra claim fields. The maximum frame buffer is fixed at 28 bytes. The decoder
+allocates no memory based on a client length field. The listener validates the
+14-byte header before reading the bounded payload. A frame deadline covers the
+header and payload reads.
 
 ## Connection flow
 
@@ -69,8 +84,8 @@ payload. A frame deadline covers the header and payload reads.
    that is not part of this repository.
 3. The service validates the credential and confirms that its player already
    exists in the simulation. Each player may have only one active connection.
-4. The client sends a version 2 HELLO followed by version 2 movement frames.
-   The service revalidates the credential for every frame and every
+4. The client sends a version 3 HELLO followed by version 3 movement or FIRE
+   intents. The service revalidates the credential for every frame and every
    simulation tick. Expiry or revocation closes the connection and removes
    its movement intent.
 5. The service stores movement intents in a bounded FIFO for each connected
@@ -89,13 +104,25 @@ reuse its existing bucket during that period. The per-player queue defaults
 to 64 entries and is capped at 1024. Evaluate these initial values under
 workload before deployment.
 
+## Server-owned combat state
+
+Players begin with 100 health. A valid FIRE intent applies 25 damage to the
+nearest eligible player along the aim ray within 20 world units. The default
+target radius is 0.5 world units. FIRE uses one of the most recent seven
+server snapshots, including the current tick; references in the future or
+older than six ticks are rejected. Eliminated players stop moving and respawn
+with full health at their configured server-owned spawn position after 180
+simulation ticks. These values are prototype defaults, not gameplay balance
+results.
+
 ## Sequence and rate controls
 
 `SequenceGuard` accepts strictly increasing values and rejects duplicates or
-out-of-order input. It is scoped to one authenticated connection. `TokenBucket`
-uses a monotonic clock and rejects clock regression. Invalid framing and
-authentication close the connection without returning protocol detail to the
-client. Replay and rate-limit events do the same.
+out-of-order input across movement and FIRE frames. It is scoped to one
+authenticated connection. `TokenBucket` uses a monotonic clock and rejects
+clock regression. Invalid framing and authentication close the connection
+without returning protocol detail to the client. Replay and rate-limit events
+do the same.
 
 ## Movement anomaly gates
 

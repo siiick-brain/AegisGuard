@@ -113,11 +113,12 @@ def make_untrusted_client_certificate(directory: Path) -> tuple[Path, Path]:
 
 def https_get(port: int, ca_cert: Path, path: str,
               client_cert: Path | None = None,
-              client_key: Path | None = None) -> tuple[int, bytes]:
+              client_key: Path | None = None,
+              timeout: float = 10.0) -> tuple[int, bytes]:
     context = ssl.create_default_context(cafile=str(ca_cert))
     if client_cert and client_key:
         context.load_cert_chain(str(client_cert), str(client_key))
-    with socket.create_connection(("127.0.0.1", port), timeout=10) as raw:
+    with socket.create_connection(("127.0.0.1", port), timeout=timeout) as raw:
         with context.wrap_socket(raw, server_hostname="localhost") as stream:
             stream.sendall(
                 f"GET {path} HTTP/1.1\r\nHost: localhost\r\n"
@@ -297,7 +298,8 @@ class ServerSmokeTests(unittest.TestCase):
                         output = process.communicate(timeout=2)[0]
                         self.fail(f"server exited early ({process.returncode}): {output}")
                     try:
-                        health_status, _ = https_get(admin_port, ca_cert, "/healthz")
+                        health_status, _ = https_get(
+                            admin_port, ca_cert, "/healthz", timeout=1.0)
                         break
                     except (OSError, ssl.SSLError) as error:
                         last_error = error
@@ -358,10 +360,10 @@ class ServerSmokeTests(unittest.TestCase):
 
                 token = bytes.fromhex(token_path.read_text(encoding="ascii").strip())
                 self.assertEqual(len(token), 32)
-                hello = bytearray(b"AG\x02\x00\x00\x02")
+                hello = bytearray(b"AG\x03\x00\x00\x02")
                 hello.extend(bytes(8))
-                hello.extend(b"\x00\x02")
-                frame = bytearray(b"AG\x02\x01\x00\x0e")
+                hello.extend(b"\x00\x03")
+                frame = bytearray(b"AG\x03\x01\x00\x0e")
                 frame.extend((1).to_bytes(8, "big"))
                 frame.extend((1000).to_bytes(2, "big", signed=True))
                 frame.extend((0).to_bytes(2, "big", signed=True))

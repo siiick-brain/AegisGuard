@@ -7,9 +7,10 @@ state on a fixed timestep.
 **Status:** The simulation and spatial index are implemented along with an
 initial TLS game service and a separate HTTPS status listener. The game service
 accepts TLS 1.3 and authenticates a bounded session credential before
-forwarding validated movement intent to the fixed-tick simulation. The HTTPS
-listener exposes a public health check and mTLS-protected status and metrics
-routes. Server output uses JSON Lines and excludes credential and key material.
+forwarding validated movement and FIRE intents to the fixed-tick simulation.
+The HTTPS listener exposes a public health check and mTLS-protected status and
+metrics routes. Server output uses JSON Lines and excludes credential and key
+material.
 Milestone 4 adds protocol-rule detection with test-only recommendations.
 Milestone 5 adds bounded in-memory replay sessions.
 Milestones 6 and 7 add an experimental offline movement-statistics heuristic
@@ -22,7 +23,7 @@ build/test jobs and generated a source SBOM in Release. Its commit was
 skills-demo job. The latest CodeQL result upload and Scorecard analysis failed.
 CodeQL and Scorecard are **Not verified while the repository is private**.
 These remote runs predate the current local worktree. The latest local run
-passed 123/123 CTest tests and 15 Python tests with two subtests. The MinGW
+passed 118/118 CTest tests and 28 Python tests with two subtests. The MinGW
 Asio thread-selection correction also passed repeated Debug and Release
 suites. This resolves the observed local test crash on this toolchain but does
 not validate other platforms. A standalone server executable and loopback
@@ -44,9 +45,13 @@ lifecycle. See the
 - A seeded Quadtree test that checks random operations against a brute-force
   oracle.
 - Google Benchmark workloads for tree operations and brute-force queries.
-- A version 2 movement frame with an explicit HELLO, an aim angle and an
-  untrusted position claim used only for anomaly checks. The authoritative
-  simulation never accepts client position as state.
+- A version 3 protocol with an explicit HELLO, movement frames and FIRE intent.
+  FIRE includes an aim angle and server tick reference; it carries no client
+  health or hit result. The authoritative simulation never accepts client
+  position or health as state.
+- Server-owned health, bounded position history, Quadtree-assisted hit
+  candidates and exact ray-to-target validation. Eliminated players respawn
+  at their server-owned spawn points after a fixed tick delay.
 - Movement telemetry checks for excessive speed, teleport distance and aim
   angular snap rate with latency, jitter and fast-turn tolerance tests.
 - A bounded session store with OpenSSL-generated credentials. It supports
@@ -78,12 +83,12 @@ lifecycle. See the
 - A libFuzzer target for the untrusted movement-frame decoder. It is optional
   and has not yet been run in this Windows toolchain because Clang is absent.
 
-The simulation does not include collision handling or health changes. It also
-has no persistence. The Quadtree returns point-query candidates; it does not
-perform exact collision tests. Session issuance and player provisioning remain outside
-the network service. The service defaults to loopback and has no production
-certificate provisioning or key rotation workflow. Do not expose it to public
-traffic. See the [protocol documentation](docs/protocol.md) and [architecture
+The simulation has no general-purpose collision system or persistence. FIRE
+hit validation uses Quadtree candidates followed by an exact ray-to-target
+test. Session issuance and player provisioning remain outside the network
+service. The service defaults to loopback and has no production certificate
+provisioning or key rotation workflow. Do not expose it to public traffic. See
+the [protocol documentation](docs/protocol.md) and [architecture
 overview](docs/architecture/overview.md). The [threat model](docs/threat-model/stride.md)
 also describes the current boundaries.
 

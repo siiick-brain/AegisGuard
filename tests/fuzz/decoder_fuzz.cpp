@@ -12,5 +12,6 @@ extern "C" int LLVMFuzzerTestOneInput(
     const auto bytes = std::span<const std::uint8_t>(data, size);
     static_cast<void>(aegisguard::decode_protocol_header(bytes));
     static_cast<void>(aegisguard::decode_move_frame(bytes));
+    static_cast<void>(aegisguard::decode_fire_frame(bytes));
     return 0;
 }

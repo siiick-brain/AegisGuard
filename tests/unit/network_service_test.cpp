@@ -14,6 +14,7 @@
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstddef>
 #include <cstdint>
 #include <future>
 #include <memory>
@@ -134,11 +135,47 @@ std::array<std::uint8_t, kHelloFrameSize> make_hello() {
     return bytes;
 }
 
+std::array<std::uint8_t, kProtocolHeaderSize + kFirePayloadSize>
+make_fire_frame(
+    std::uint64_t sequence, std::uint16_t angle, std::uint64_t tick_reference) {
+    std::array<std::uint8_t, kProtocolHeaderSize + kFirePayloadSize> bytes{};
+    bytes[0] = 0x41;
+    bytes[1] = 0x47;
+    bytes[2] = kProtocolVersion;
+    bytes[3] = kFireMessageType;
+    bytes[5] = static_cast<std::uint8_t>(kFirePayloadSize);
+    for (std::size_t index = 0; index < 8; ++index) {
+        const auto shift = static_cast<unsigned int>((7 - index) * 8);
+        bytes[6 + index] = static_cast<std::uint8_t>(sequence >> shift);
+        bytes[kProtocolHeaderSize + 2 + index] =
+            static_cast<std::uint8_t>(tick_reference >> shift);
+    }
+    bytes[kProtocolHeaderSize] = static_cast<std::uint8_t>(angle >> 8U);
+    bytes[kProtocolHeaderSize + 1] = static_cast<std::uint8_t>(angle);
+    return bytes;
+}
+
+std::array<std::uint8_t, kProtocolHeaderSize + kFirePayloadSize + 8>
+make_claimed_fire_frame(std::uint64_t sequence) {
+    auto valid = make_fire_frame(sequence, 0, 0);
+    std::array<std::uint8_t, kProtocolHeaderSize + kFirePayloadSize + 8> bytes{};
+    std::copy(valid.begin(), valid.end(), bytes.begin());
+    const auto claimed_payload_size = kFirePayloadSize + 8;
+    bytes[4] = static_cast<std::uint8_t>(claimed_payload_size >> 8U);
+    bytes[5] = static_cast<std::uint8_t>(claimed_payload_size);
+    std::fill(bytes.begin() + static_cast<std::ptrdiff_t>(
+                  kProtocolHeaderSize + kFirePayloadSize),
+              bytes.end(), 0xff);
+    return bytes;
+}
+
 class NetworkServiceTest : public ::testing::Test {
 protected:
     void SetUp() override {
         install_test_certificate(*server_tls_);
         ASSERT_EQ(simulation_.add_player(7, Vec2{10.0, 10.0}),
+                  SimulationError::none);
+        ASSERT_EQ(simulation_.add_player(8, Vec2{15.0, 10.0}),
                   SimulationError::none);
         const auto issued = sessions_.issue(7, 60000ms, SessionStore::Clock::now());
         ASSERT_EQ(issued.error, SessionError::none);
@@ -204,16 +241,40 @@ protected:
         asio::write(client, asio::buffer(hello));
     }
 
-    std::optional<PlayerState> player_state() {
+    std::optional<PlayerState> player_state(std::uint64_t player_id = 7) {
         auto promise = std::make_shared<std::promise<std::optional<PlayerState>>>();
         auto result = promise->get_future();
-        asio::post(*server_io_, [this, promise] {
-            promise->set_value(simulation_.player(7));
+        asio::post(*server_io_, [this, promise, player_id] {
+            promise->set_value(simulation_.player(player_id));
         });
         if (result.wait_for(1s) != std::future_status::ready) {
             return std::nullopt;
         }
         return result.get();
+    }
+
+    std::uint64_t simulation_tick() {
+        auto promise = std::make_shared<std::promise<std::uint64_t>>();
+        auto result = promise->get_future();
+        asio::post(*server_io_, [this, promise] {
+            promise->set_value(simulation_.tick());
+        });
+        if (result.wait_for(1s) != std::future_status::ready) {
+            throw std::runtime_error("simulation tick query timed out");
+        }
+        return result.get();
+    }
+
+    bool wait_for_player_health(std::uint64_t player_id, std::uint32_t health) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            const auto state = player_state(player_id);
+            if (state && state->health == health) {
+                return true;
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        return false;
     }
 
     bool wait_for_player_position_change(double initial_x) {
@@ -552,6 +613,49 @@ TEST_F(NetworkServiceTest, AimSnapCheatRejected) {
     EXPECT_TRUE(wait_for_close(client, client_io));
     ASSERT_TRUE(wait_for_detection_count(1));
     EXPECT_EQ(detection_findings()[0].signal, RuleSignal::aim_snap_exceeded);
+}
+
+TEST_F(NetworkServiceTest, AuthenticatedFireUsesServerValidatedHitAndHealth) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+    const auto target_before = player_state(8);
+    ASSERT_TRUE(target_before);
+
+    const auto frame = make_fire_frame(1, 0, simulation_tick());
+    asio::write(client, asio::buffer(frame));
+
+    ASSERT_TRUE(wait_for_player_health(8, 75));
+    EXPECT_EQ(player_state(7)->health, 100U);
+    EXPECT_DOUBLE_EQ(player_state(8)->position.x, target_before->position.x);
+    EXPECT_DOUBLE_EQ(player_state(8)->position.y, target_before->position.y);
+}
+
+TEST_F(NetworkServiceTest, RejectsForgedHealthAndHitClaimsWithoutChangingState) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+    const auto shooter_before = player_state(7);
+    const auto target_before = player_state(8);
+    ASSERT_TRUE(shooter_before);
+    ASSERT_TRUE(target_before);
+
+    const auto forged_frame = make_claimed_fire_frame(1);
+    asio::write(client, asio::buffer(forged_frame));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    const auto shooter_after = player_state(7);
+    const auto target_after = player_state(8);
+    ASSERT_TRUE(shooter_after);
+    ASSERT_TRUE(target_after);
+    EXPECT_EQ(shooter_after->health, shooter_before->health);
+    EXPECT_EQ(target_after->health, target_before->health);
+    EXPECT_DOUBLE_EQ(target_after->position.x, target_before->position.x);
+    EXPECT_DOUBLE_EQ(target_after->position.y, target_before->position.y);
 }
 
 TEST_F(NetworkServiceTest, ClosesConnectionsWhenASequenceIsReplayed) {

@@ -79,6 +79,7 @@ RC_GTEST_PROP(ProtocolProperty, ArbitraryBytesNeverCrashAnyDecoder, ()) {
         rc::gen::arbitrary<std::uint8_t>());
     static_cast<void>(decode_protocol_header(bytes));
     static_cast<void>(decode_move_frame(bytes));
+    static_cast<void>(decode_fire_frame(bytes));
     static_cast<void>(decode_hello_frame(bytes));
 }
 

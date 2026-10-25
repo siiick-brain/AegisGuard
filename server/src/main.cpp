@@ -27,6 +27,7 @@
 #include <chrono>
 #include <csignal>
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -96,6 +97,53 @@ void configure_tls13(asio::ssl::context& context) {
     if ((SSL_CTX_set_options(native, options) & options) != options) {
         throw std::runtime_error("could not set TLS context options");
     }
+}
+
+std::string healthcheck_hostname() {
+    const char* configured = std::getenv("AEGISGUARD_STATUS_HOSTNAME");
+    const std::string hostname =
+        configured == nullptr || configured[0] == '\0'
+            ? "localhost"
+            : configured;
+    if (hostname.size() > 253) {
+        throw std::invalid_argument(
+            "AEGISGUARD_STATUS_HOSTNAME must be a DNS hostname");
+    }
+
+    std::size_t label_start = 0;
+    while (label_start < hostname.size()) {
+        const std::size_t label_end = hostname.find('.', label_start);
+        const std::size_t label_length =
+            (label_end == std::string::npos ? hostname.size() : label_end) -
+            label_start;
+        if (label_length == 0 || label_length > 63 ||
+            hostname[label_start] == '-' ||
+            hostname[label_start + label_length - 1] == '-') {
+            throw std::invalid_argument(
+                "AEGISGUARD_STATUS_HOSTNAME must be a DNS hostname");
+        }
+        for (std::size_t index = label_start;
+             index < label_start + label_length; ++index) {
+            const char character = hostname[index];
+            const bool ascii_alphanumeric =
+                (character >= 'a' && character <= 'z') ||
+                (character >= 'A' && character <= 'Z') ||
+                (character >= '0' && character <= '9');
+            if (!ascii_alphanumeric && character != '-') {
+                throw std::invalid_argument(
+                    "AEGISGUARD_STATUS_HOSTNAME must be a DNS hostname");
+            }
+        }
+        if (label_end == std::string::npos) {
+            break;
+        }
+        label_start = label_end + 1;
+    }
+    if (hostname.back() == '.') {
+        throw std::invalid_argument(
+            "AEGISGUARD_STATUS_HOSTNAME must be a DNS hostname");
+    }
+    return hostname;
 }
 
 std::shared_ptr<asio::ssl::context> make_server_tls(
@@ -461,21 +509,25 @@ private:
 
 int healthcheck(const aegisguard::ServerConfig& config) {
     try {
+        const std::string hostname = healthcheck_hostname();
         asio::io_context io;
         asio::ssl::context tls(asio::ssl::context::tls_client);
         configure_tls13(tls);
         tls.load_verify_file(config.admin_ca_certificate);
         tls.set_verify_mode(asio::ssl::verify_peer);
         asio::ssl::stream<Tcp::socket> stream(io, tls);
-        stream.set_verify_callback(asio::ssl::host_name_verification("localhost"));
-        if (SSL_set_tlsext_host_name(stream.native_handle(), "localhost") != 1) {
+        stream.set_verify_callback(asio::ssl::host_name_verification(hostname));
+        if (SSL_set_tlsext_host_name(
+                stream.native_handle(), hostname.c_str()) != 1) {
             return 1;
         }
         stream.lowest_layer().connect(Tcp::endpoint(
             asio::ip::make_address("127.0.0.1"), config.admin_port));
         stream.handshake(asio::ssl::stream_base::client);
-        asio::write(stream, asio::buffer(
-            "GET /healthz HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n"));
+        const std::string request =
+            "GET /healthz HTTP/1.1\r\nHost: " + hostname +
+            "\r\nConnection: close\r\n\r\n";
+        asio::write(stream, asio::buffer(request));
         asio::streambuf response;
         asio::read_until(stream, response, "\r\n");
         std::istream input(&response);

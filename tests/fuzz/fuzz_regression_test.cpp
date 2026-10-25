@@ -30,6 +30,7 @@ TEST(FuzzRegressionTest, ReplaysCheckedInParserInputs) {
         const auto span = std::span<const std::uint8_t>(bytes);
         static_cast<void>(aegisguard::decode_protocol_header(span));
         static_cast<void>(aegisguard::decode_move_frame(span));
+        static_cast<void>(aegisguard::decode_fire_frame(span));
         static_cast<void>(aegisguard::decode_hello_frame(span));
         try {
             static_cast<void>(aegisguard::parse_server_config(

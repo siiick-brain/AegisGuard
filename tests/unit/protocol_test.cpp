@@ -2,6 +2,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <limits>
@@ -59,7 +60,27 @@ std::array<std::uint8_t, kHelloFrameSize> make_hello() {
     return bytes;
 }
 
-TEST(ProtocolTest, DecodesVersionTwoMovementFrameWithAimAndPositionClaim) {
+std::array<std::uint8_t, kProtocolHeaderSize + kFirePayloadSize>
+make_fire_frame(
+    std::uint64_t sequence, std::uint16_t angle, std::uint64_t tick_reference) {
+    std::array<std::uint8_t, kProtocolHeaderSize + kFirePayloadSize> bytes{};
+    bytes[0] = 0x41;
+    bytes[1] = 0x47;
+    bytes[2] = kProtocolVersion;
+    bytes[3] = kFireMessageType;
+    bytes[5] = static_cast<std::uint8_t>(kFirePayloadSize);
+    for (std::size_t index = 0; index < 8; ++index) {
+        const auto shift = static_cast<unsigned int>((7 - index) * 8);
+        bytes[6 + index] = static_cast<std::uint8_t>(sequence >> shift);
+        bytes[kProtocolHeaderSize + 2 + index] =
+            static_cast<std::uint8_t>(tick_reference >> shift);
+    }
+    bytes[kProtocolHeaderSize] = static_cast<std::uint8_t>(angle >> 8U);
+    bytes[kProtocolHeaderSize + 1] = static_cast<std::uint8_t>(angle);
+    return bytes;
+}
+
+TEST(ProtocolTest, DecodesVersionThreeMovementFrameWithAimAndPositionClaim) {
     const auto bytes = make_frame(42, -1000, 500, 16384, 12500, 7500);
 
     const auto result = decode_move_frame(bytes);
@@ -71,6 +92,30 @@ TEST(ProtocolTest, DecodesVersionTwoMovementFrameWithAimAndPositionClaim) {
     EXPECT_NEAR(result.frame.aim_angle_radians, 1.57079632679, 1e-4);
     EXPECT_DOUBLE_EQ(result.frame.reported_position_x, 12.5);
     EXPECT_DOUBLE_EQ(result.frame.reported_position_y, 7.5);
+}
+
+TEST(ProtocolTest, DecodesVersionThreeFireIntent) {
+    const auto bytes = make_fire_frame(17, 16384, 42);
+
+    const auto result = decode_fire_frame(bytes);
+
+    ASSERT_EQ(result.error, ProtocolError::none);
+    EXPECT_EQ(result.frame.sequence, 17U);
+    EXPECT_NEAR(result.frame.aim_angle_radians, 1.57079632679, 1e-4);
+    EXPECT_EQ(result.frame.tick_reference, 42U);
+}
+
+TEST(ProtocolTest, RejectsFireFrameThatCarriesForgedHealthOrHitClaims) {
+    std::array<std::uint8_t, kProtocolHeaderSize + kFirePayloadSize + 8> bytes{};
+    const auto valid = make_fire_frame(1, 0, 0);
+    std::copy(valid.begin(), valid.end(), bytes.begin());
+    const auto claimed_payload_size = kFirePayloadSize + 8;
+    bytes[4] = static_cast<std::uint8_t>(claimed_payload_size >> 8U);
+    bytes[5] = static_cast<std::uint8_t>(claimed_payload_size);
+    bytes[kProtocolHeaderSize + kFirePayloadSize] = 0xff;
+    bytes[kProtocolHeaderSize + kFirePayloadSize + 1] = 0xff;
+
+    EXPECT_EQ(decode_fire_frame(bytes).error, ProtocolError::payload_too_large);
 }
 
 TEST(ProtocolTest, RequiresExplicitVersionedHello) {
@@ -89,7 +134,7 @@ TEST(ProtocolTest, RequiresExplicitVersionedHello) {
 
 TEST(ProtocolTest, RejectsOldProtocolVersion) {
     auto bytes = make_frame(1, 0, 0);
-    bytes[2] = 1;
+    bytes[2] = kProtocolVersion - 1;
     EXPECT_EQ(decode_move_frame(bytes).error, ProtocolError::unsupported_version);
 }
 
@@ -101,10 +146,10 @@ TEST(ProtocolTest, RejectsMalformedHeadersAndLengths) {
     bytes[0] = 0;
     EXPECT_EQ(decode_move_frame(bytes).error, ProtocolError::invalid_magic);
     bytes[0] = 0x41;
-    bytes[2] = 3;
+    bytes[2] = kProtocolVersion - 1;
     EXPECT_EQ(decode_move_frame(bytes).error, ProtocolError::unsupported_version);
     bytes[2] = kProtocolVersion;
-    bytes[3] = 2;
+    bytes[3] = 3;
     EXPECT_EQ(decode_move_frame(bytes).error, ProtocolError::unknown_message_type);
     bytes[3] = kMoveMessageType;
     bytes[5] = static_cast<std::uint8_t>(kMovePayloadSize + 1);

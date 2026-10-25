@@ -623,7 +623,7 @@ void NetworkService::Impl::Connection::read_header() {
                 if (header.error != ProtocolError::none ||
                     (header.message_type == kHelloMessageType &&
                      self->hello_received_) ||
-                    (header.message_type == kMoveMessageType &&
+                    (header.message_type != kHelloMessageType &&
                      !self->hello_received_)) {
                     self->cancel_timeout();
                     self->close();
@@ -667,10 +667,25 @@ void NetworkService::Impl::Connection::read_payload() {
                     return;
                 }
 
-                const auto decoded = decode_move_frame(self->frame_);
-                if (decoded.error != ProtocolError::none) {
+                std::optional<MoveFrame> movement;
+                std::optional<FireFrame> fire;
+                ProtocolError decode_error = ProtocolError::none;
+                if (self->current_header_.message_type == kFireMessageType) {
+                    const auto decoded = decode_fire_frame(bytes);
+                    decode_error = decoded.error;
+                    if (decode_error == ProtocolError::none) {
+                        fire = decoded.frame;
+                    }
+                } else {
+                    const auto decoded = decode_move_frame(bytes);
+                    decode_error = decoded.error;
+                    if (decode_error == ProtocolError::none) {
+                        movement = decoded.frame;
+                    }
+                }
+                if (decode_error != ProtocolError::none) {
                     const bool out_of_range =
-                        decoded.error == ProtocolError::invalid_movement;
+                        decode_error == ProtocolError::invalid_movement;
                     const auto player_id = self->player_id_;
                     self->close();
                     if (out_of_range && player_id) {
@@ -692,7 +707,8 @@ void NetworkService::Impl::Connection::read_payload() {
                     return;
                 }
                 const ProtocolError sequence_error =
-                    self->sequence_guard_.accept(decoded.frame.sequence);
+                    self->sequence_guard_.accept(
+                        self->current_header_.sequence);
                 if (sequence_error != ProtocolError::none) {
                     const auto player_id = self->player_id_;
                     self->close();
@@ -724,6 +740,20 @@ void NetworkService::Impl::Connection::read_payload() {
                     return;
                 }
 
+                if (fire) {
+                    const FireResult result = self->owner_->simulation_.fire(
+                        FireIntent{
+                            *self->player_id_,
+                            fire->aim_angle_radians,
+                            fire->tick_reference});
+                    if (result.error != SimulationError::none) {
+                        self->close();
+                        return;
+                    }
+                    self->read_header();
+                    return;
+                }
+
                 if (!self->movement_detector_) {
                     const auto player_id = self->player_id_;
                     self->close();
@@ -733,7 +763,8 @@ void NetworkService::Impl::Connection::read_payload() {
                     return;
                 }
                 const MovementAnomaly anomaly =
-                    self->movement_detector_->observe(decoded.frame, SteadyClock::now());
+                    self->movement_detector_->observe(
+                        *movement, SteadyClock::now());
                 if (anomaly != MovementAnomaly::none) {
                     const auto player_id = self->player_id_;
                     self->close();
@@ -748,7 +779,7 @@ void NetworkService::Impl::Connection::read_payload() {
 
                 if (!self->owner_->enqueue_movement(
                         *self->player_id_,
-                        Vec2{decoded.frame.x, decoded.frame.y})) {
+                        Vec2{movement->x, movement->y})) {
                     const auto player_id = self->player_id_;
                     self->close();
                     if (player_id) {

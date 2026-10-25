@@ -11,15 +11,20 @@
 
 namespace aegisguard {
 
-inline constexpr std::uint8_t kProtocolVersion = 2;
+inline constexpr std::uint8_t kProtocolVersion = 3;
 inline constexpr std::size_t kProtocolHeaderSize = 14;
 inline constexpr std::size_t kHelloPayloadSize = 2;
 inline constexpr std::size_t kMovePayloadSize = 14;
-inline constexpr std::size_t kMaximumFrameSize = kProtocolHeaderSize + kMovePayloadSize;
+inline constexpr std::size_t kFirePayloadSize = 10;
+inline constexpr std::size_t kMaximumPayloadSize =
+    kMovePayloadSize > kFirePayloadSize ? kMovePayloadSize : kFirePayloadSize;
+inline constexpr std::size_t kMaximumFrameSize =
+    kProtocolHeaderSize + kMaximumPayloadSize;
 inline constexpr std::size_t kHelloFrameSize =
     kProtocolHeaderSize + kHelloPayloadSize;
 inline constexpr std::uint8_t kHelloMessageType = 0;
 inline constexpr std::uint8_t kMoveMessageType = 1;
+inline constexpr std::uint8_t kFireMessageType = 2;
 
 enum class ProtocolError {
     none,
@@ -45,6 +50,12 @@ struct MoveFrame {
     double reported_position_y{};
 };
 
+struct FireFrame {
+    std::uint64_t sequence{};
+    double aim_angle_radians{};
+    std::uint64_t tick_reference{};
+};
+
 struct ProtocolHeader {
     ProtocolError error{ProtocolError::none};
     std::uint8_t message_type{};
@@ -66,7 +77,14 @@ struct DecodeResult {
     MoveFrame frame{};
 };
 
+struct FireDecodeResult {
+    ProtocolError error{ProtocolError::none};
+    FireFrame frame{};
+};
+
 [[nodiscard]] DecodeResult decode_move_frame(std::span<const std::uint8_t> bytes) noexcept;
+[[nodiscard]] FireDecodeResult decode_fire_frame(
+    std::span<const std::uint8_t> bytes) noexcept;
 [[nodiscard]] ProtocolHeader decode_protocol_header(
     std::span<const std::uint8_t> bytes) noexcept;
 [[nodiscard]] HelloDecodeResult decode_hello_frame(
@@ -84,7 +102,7 @@ template <typename SyncReadStream>
 
     const std::size_t payload_size =
         (static_cast<std::size_t>(header[4]) << 8U) | static_cast<std::size_t>(header[5]);
-    if (payload_size > kMovePayloadSize) {
+    if (payload_size > kMaximumPayloadSize) {
         return {ProtocolError::payload_too_large, {}};
     }
     if (payload_size != kMovePayloadSize) {
