@@ -10,14 +10,18 @@ results describe synthetic workloads on one development machine.
 - Intel Core i5-10310U with 4 cores and 8 logical processors.
 - MSYS2 GCC 15.2.0 with CMake 4.4.4 and Ninja 1.13.2.
 - Google Benchmark 1.9.4 on a Release build.
-- Five repetitions with a 0.1 second minimum per repetition.
+- Five repetitions with a 0.1 second minimum per repetition for the full
+  operation summary below.
 - Entity counts of 100 then 1000 and 10000.
 
 The uniform workload places points using deterministic modular sequences over a
 10000 by 10000 world. The clustered workload fills a 101 by 101 grid near the
-world center. Queries use square widths of 11 or 101 world units. The JSON file
-contains aggregate values for the five repetitions; the individual raw runs
-were not retained. Local host and executable paths were removed from its context.
+world center. Queries use square widths of 11 or 101 world units. The original
+full-run JSON contains aggregate values for the five repetitions. For
+10,000-entity range queries, a separate run retained 20 raw repetitions for
+each of eight combinations of query width, distribution and query algorithm.
+The sanitized raw JSON and graph are linked below. Local host and executable
+paths were removed from both JSON contexts.
 
 The table reports median wall-clock time for selected cases with 10000 entities.
 Times are in microseconds. The query result is an inclusive point-range query.
@@ -38,11 +42,32 @@ and returns nearly every entity while the vector-based baseline scans
 contiguous data. The results do not support a general claim that the Quadtree
 is faster for every workload.
 
-These are five-run medians and not tail-latency percentiles. The harness does
-not measure memory consumption. It also does not benchmark simulation ticks or
-collision narrow-phase work. Multiple machines and concurrent workloads are
-not covered. Results may vary with compiler and machine load plus entity
-distribution.
+The table contains five-run medians and is not a tail-latency report. The
+separate query graph plots every raw repetition and p50, p95 and p99 for its
+20-run samples. For the 10,000-entity clustered width-101 query, the Quadtree
+measured p50 998.26 us, p95 1169.28 us and p99 1198.97 us. The brute-force
+baseline measured p50 52.04 us, p95 58.50 us and p99 59.65 us. This is a
+measured slow clustered case, not a claim about all spatial workloads.
+
+Percentiles use linear interpolation of the 20 repetitions and do not establish
+production tail-latency guarantees. The harness does not measure memory
+consumption. It also does not benchmark simulation ticks or collision
+narrow-phase work. Multiple machines and concurrent workloads are not covered.
+Results may vary with compiler and machine load plus entity distribution.
+
+## Repetitions graph
+
+[The SVG graph](../../benchmarks/results/spatial-query-percentiles.svg) shows
+the raw 20-run repetitions and p50/p95/p99 for all eight 10,000-entity query
+cases. The corresponding
+[sanitized raw JSON](../../benchmarks/results/spatial-query-raw-gcc-15.2.0.json)
+is the graph's data source. Render it with:
+
+```powershell
+python tools\evaluation\render_benchmark_graph.py `
+  benchmarks\results\spatial-query-raw-gcc-15.2.0.json `
+  benchmarks\results\spatial-query-percentiles.svg
+```
 
 ## Reproduce
 
@@ -53,6 +78,9 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DAG_BUILD_BENCHMARKS=ON
 cmake --build build --parallel
 .\build\benchmarks\aegisguard_spatial_benchmarks.exe --benchmark_min_time=0.1s --benchmark_repetitions=5 --benchmark_report_aggregates_only=true --benchmark_out=build\spatial-raw.json --benchmark_out_format=json
 python tools\evaluation\sanitize_benchmark_json.py build\spatial-raw.json benchmarks\results\spatial-gcc-15.2.0.json
+.\build\benchmarks\aegisguard_spatial_benchmarks.exe --benchmark_filter='BM_.*RangeQuery/entities:10000/.*' --benchmark_min_time=0.1s --benchmark_repetitions=20 --benchmark_report_aggregates_only=false --benchmark_out=build\spatial-query-raw.json --benchmark_out_format=json
+python tools\evaluation\sanitize_benchmark_json.py build\spatial-query-raw.json benchmarks\results\spatial-query-raw-gcc-15.2.0.json
+python tools\evaluation\render_benchmark_graph.py benchmarks\results\spatial-query-raw-gcc-15.2.0.json benchmarks\results\spatial-query-percentiles.svg
 ```
 
 The checked-in [JSON results](../../benchmarks/results/spatial-gcc-15.2.0.json)

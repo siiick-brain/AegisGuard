@@ -1,6 +1,7 @@
 #pragma once
 
 #include "aegisguard/session_store.hpp"
+#include "aegisguard/movement_anomaly.hpp"
 #include "aegisguard/rule_detector.hpp"
 #include "aegisguard/simulation.hpp"
 
@@ -25,6 +26,11 @@ struct NetworkServiceConfig {
     std::chrono::milliseconds frame_timeout{1000};
     double movement_rate_capacity{16.0};
     double movement_rate_per_second{60.0};
+    double ip_rate_capacity{128.0};
+    double ip_rate_per_second{120.0};
+    std::size_t maximum_tracked_ip_rates{4096};
+    std::size_t maximum_queued_intents_per_player{64};
+    MovementAnomalyConfig movement_anomaly{};
     RuleDetectorConfig rule_detector{};
     std::function<void(std::error_code)> on_error;
     std::function<void(const RuleFinding&)> on_detection;

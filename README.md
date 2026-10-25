@@ -5,24 +5,26 @@ Clients provide movement intent. The server validates it and updates player
 state on a fixed timestep.
 
 **Status:** The simulation and spatial index are implemented along with an
-initial TLS game service. The service accepts TLS 1.3 and authenticates a
-bounded session credential before forwarding validated movement intent to the
-fixed-tick simulation. Milestone 4 adds protocol-rule detection with test-only
-recommendations. Milestone 5 adds bounded in-memory replay sessions.
+initial TLS game service and a separate HTTPS status listener. The game service
+accepts TLS 1.3 and authenticates a bounded session credential before
+forwarding validated movement intent to the fixed-tick simulation. The HTTPS
+listener exposes a public health check and mTLS-protected status and metrics
+routes. Server output uses JSON Lines and excludes credential and key material.
+Milestone 4 adds protocol-rule detection with test-only recommendations.
+Milestone 5 adds bounded in-memory replay sessions.
 Milestones 6 and 7 add an experimental offline movement-statistics heuristic
 and a seeded synthetic holdout evaluation. These features do not use game data
 or affect server enforcement.
 
 Milestone 8 adds CI with CodeQL and Scorecard plus source-SBOM workflows. They
-have not run on GitHub. Docker Compose is deferred because the repository has no
-runnable server executable. Earlier local runs passed 67/68 Release tests and
-66/68 Debug tests. The current worktree builds. After fixing inconsistent
+have not run on GitHub. Earlier local runs passed 67/68 Release tests and
+66/68 Debug tests. After fixing inconsistent
 MinGW Asio thread selection the full 70-test CTest suite passed 10/10 runs in
 both Debug and Release. Three focused crash-prone tests also passed 20
 repetitions each. This resolves the observed local test crash on this
-toolchain but does not validate other platforms. There is no standalone
-game-server executable yet. This is a buildable library with local integration
-tests and is not a complete playable program. See the
+toolchain but does not validate other platforms. A standalone server executable
+and loopback integration tests are present; there is no game client or complete
+match lifecycle. See the
 [requirements matrix](docs/requirements-matrix.md) and
 [known failures](docs/testing/KNOWN_FAILURES.md).
 
@@ -39,13 +41,22 @@ tests and is not a complete playable program. See the
 - A seeded Quadtree test that checks random operations against a brute-force
   oracle.
 - Google Benchmark workloads for tree operations and brute-force queries.
-- A bounded version 1 movement frame with a sequence guard and token-bucket
-  limiter.
+- A version 2 movement frame with an explicit HELLO, an aim angle and an
+  untrusted position claim used only for anomaly checks. The authoritative
+  simulation never accepts client position as state.
+- Movement telemetry checks for excessive speed, teleport distance and aim
+  angular snap rate with latency, jitter and fast-turn tolerance tests.
 - A bounded session store with OpenSSL-generated credentials. It supports
   expiry and revocation with concurrent access protection.
 - An Asio listener that requires TLS 1.3 and validates session credentials. It
   limits connections and input rates. It rejects replayed frames and applies
-  read deadlines before feeding the simulation on its fixed tick.
+  read deadlines before feeding the simulation on its fixed tick. Accepted
+  movement intents enter a bounded per-player FIFO. A shared per-IP token
+  bucket preserves rate state across reconnects.
+- A separate HTTPS listener for `/healthz`, `/status` and `/metrics`.
+  `/healthz` is unauthenticated; status and metrics require a trusted client
+  certificate. JSON Lines logs contain structured lifecycle and HTTP events
+  without credential or key fields.
 - A rule detector for out-of-range movement and replayed sequences plus rate-limit
   violations. Findings include a reason and rolling count. Recommendations can
   escalate from review to throttle or disconnect. The detector applies only

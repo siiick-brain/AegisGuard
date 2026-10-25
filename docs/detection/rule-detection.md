@@ -3,13 +3,18 @@
 ## Scope
 
 The current server exposes movement intent and basic session controls. The
-detector records three violations the server can verify directly:
+detector records eight violation types the server can verify directly:
 
 | Signal | Evidence |
 |---|---|
 | `movement_out_of_range` | An authenticated frame contains a movement component outside the normalized range. |
 | `replayed_sequence` | An authenticated frame reuses or precedes an accepted sequence number. |
 | `movement_rate_exceeded` | An authenticated connection exceeds its configured token-bucket rate. |
+| `speed_exceeded` | Reported position displacement exceeds the speed bound after latency grace and jitter tolerance. |
+| `teleport_distance_exceeded` | Reported position displacement exceeds 10 world units. |
+| `aim_snap_exceeded` | Wrapped aim-angle displacement exceeds the configured angular rate and grace interval. |
+| `ip_rate_exceeded` | An authenticated source address exceeds its shared token-bucket rate or the tracked-address bound. |
+| `movement_intent_queue_full` | A player's bounded pending-intent FIFO reaches its configured capacity. |
 
 These signals describe protocol violations. They do not establish cheating or
 intent. The server still rejects the frame and closes the connection under its
@@ -53,5 +58,11 @@ verified to leave applied action at `observe`.
 
 The tests use controlled protocol cases. They are not a labeled gameplay
 dataset. No real-player behavior or real-cheat coverage has been measured.
+Position claims are untrusted telemetry and are never applied to authoritative
+state. Default thresholds use a 250 ms position grace, 1.0 world unit of
+jitter tolerance, 10 world units for teleport classification and 40 radians
+per second with a 20 ms grace for aim. Latency, jitter and fast legitimate
+turns have deterministic false-positive tests; no field false-positive rate
+is known.
 The separate offline movement baseline and its synthetic test limits are
 documented in [movement statistics](movement-statistics.md).

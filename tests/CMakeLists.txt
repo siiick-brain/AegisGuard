@@ -18,9 +18,20 @@ add_executable(aegisguard_simulation_tests
     unit/rule_detector_test.cpp
     unit/network_service_test.cpp
     unit/movement_statistics_test.cpp
+    unit/movement_anomaly_test.cpp
+    unit/intent_queue_test.cpp
+    unit/ip_rate_limiter_test.cpp
     unit/session_store_test.cpp
     unit/server_config_test.cpp
 )
+
+add_executable(aegisguard_json_log_probe unit/json_log_probe.cpp)
+target_link_libraries(aegisguard_json_log_probe PRIVATE aegisguard_simulation)
+if(MSVC)
+    target_compile_options(aegisguard_json_log_probe PRIVATE /W4 /WX /permissive-)
+else()
+    target_compile_options(aegisguard_json_log_probe PRIVATE -Wall -Wextra -Wpedantic -Werror)
+endif()
 
 target_link_libraries(aegisguard_simulation_tests
     PRIVATE aegisguard_simulation GTest::gtest_main

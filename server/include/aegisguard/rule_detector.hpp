@@ -16,6 +16,11 @@ enum class RuleSignal {
     movement_out_of_range,
     replayed_sequence,
     movement_rate_exceeded,
+    speed_exceeded,
+    teleport_distance_exceeded,
+    aim_snap_exceeded,
+    ip_rate_exceeded,
+    movement_intent_queue_full,
 };
 
 enum class RecommendedAction {

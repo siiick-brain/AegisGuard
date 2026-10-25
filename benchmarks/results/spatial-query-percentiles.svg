@@ -1,0 +1,249 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="680" viewBox="0 0 1600 680" role="img" aria-labelledby="title description">
+<title id="title">Raw spatial query repetitions and latency percentiles</title>
+<desc id="description">Twenty raw repetitions for each 10,000-entity query case, with p50, p95, and p99 markers. The clustered Quadtree query at width 101 is the slowest case by a wide margin.</desc>
+<style>text{font-family:Arial,sans-serif;fill:#202124}.muted{fill:#5f6368}.grid{stroke:#dadce0;stroke-width:1}.raw{fill:#9aa0a6;opacity:.68}.p50{fill:#007f86}.p95{fill:#d97706}.p99{fill:#c62828}.legend-p50{fill:#007f86}.legend-p95{fill:#d97706}.legend-p99{fill:#c62828}.raw-legend{fill:#9aa0a6}.separator{stroke:#e8eaed;stroke-width:1}</style>
+<rect width="100%" height="100%" fill="#fff"/>
+<text x="42" y="42" font-size="24" font-weight="700">Spatial query latency: raw repetitions and percentiles</text>
+<text x="42" y="70" class="muted" font-size="14">10,000 entities · 20 repetitions per case · values in microseconds · logarithmic x-axis</text>
+<line x1="390.00" y1="96" x2="390.00" y2="507.00" class="grid"/>
+<text x="390.00" y="531.00" text-anchor="middle" class="muted" font-size="12">0.5</text>
+<line x1="453.51" y1="96" x2="453.51" y2="507.00" class="grid"/>
+<text x="453.51" y="531.00" text-anchor="middle" class="muted" font-size="12">1</text>
+<line x1="517.03" y1="96" x2="517.03" y2="507.00" class="grid"/>
+<text x="517.03" y="531.00" text-anchor="middle" class="muted" font-size="12">2</text>
+<line x1="600.99" y1="96" x2="600.99" y2="507.00" class="grid"/>
+<text x="600.99" y="531.00" text-anchor="middle" class="muted" font-size="12">5</text>
+<line x1="664.50" y1="96" x2="664.50" y2="507.00" class="grid"/>
+<text x="664.50" y="531.00" text-anchor="middle" class="muted" font-size="12">10</text>
+<line x1="728.02" y1="96" x2="728.02" y2="507.00" class="grid"/>
+<text x="728.02" y="531.00" text-anchor="middle" class="muted" font-size="12">20</text>
+<line x1="811.98" y1="96" x2="811.98" y2="507.00" class="grid"/>
+<text x="811.98" y="531.00" text-anchor="middle" class="muted" font-size="12">50</text>
+<line x1="875.50" y1="96" x2="875.50" y2="507.00" class="grid"/>
+<text x="875.50" y="531.00" text-anchor="middle" class="muted" font-size="12">100</text>
+<line x1="939.01" y1="96" x2="939.01" y2="507.00" class="grid"/>
+<text x="939.01" y="531.00" text-anchor="middle" class="muted" font-size="12">200</text>
+<line x1="1022.97" y1="96" x2="1022.97" y2="507.00" class="grid"/>
+<text x="1022.97" y="531.00" text-anchor="middle" class="muted" font-size="12">500</text>
+<line x1="1086.49" y1="96" x2="1086.49" y2="507.00" class="grid"/>
+<text x="1086.49" y="531.00" text-anchor="middle" class="muted" font-size="12">1000</text>
+<line x1="1150.00" y1="96" x2="1150.00" y2="507.00" class="grid"/>
+<text x="1150.00" y="531.00" text-anchor="middle" class="muted" font-size="12">2000</text>
+<text x="42" y="130.00" font-size="14">Quadtree · Uniform · width 11</text>
+<circle cx="468.65" cy="121.00" r="2.6" class="raw"/>
+<circle cx="477.76" cy="123.00" r="2.6" class="raw"/>
+<circle cx="454.39" cy="125.00" r="2.6" class="raw"/>
+<circle cx="455.10" cy="127.00" r="2.6" class="raw"/>
+<circle cx="448.82" cy="129.00" r="2.6" class="raw"/>
+<circle cx="436.81" cy="121.00" r="2.6" class="raw"/>
+<circle cx="459.17" cy="123.00" r="2.6" class="raw"/>
+<circle cx="454.56" cy="125.00" r="2.6" class="raw"/>
+<circle cx="464.99" cy="127.00" r="2.6" class="raw"/>
+<circle cx="452.26" cy="129.00" r="2.6" class="raw"/>
+<circle cx="444.01" cy="121.00" r="2.6" class="raw"/>
+<circle cx="456.14" cy="123.00" r="2.6" class="raw"/>
+<circle cx="428.39" cy="125.00" r="2.6" class="raw"/>
+<circle cx="465.28" cy="127.00" r="2.6" class="raw"/>
+<circle cx="460.69" cy="129.00" r="2.6" class="raw"/>
+<circle cx="463.41" cy="121.00" r="2.6" class="raw"/>
+<circle cx="473.81" cy="123.00" r="2.6" class="raw"/>
+<circle cx="469.59" cy="125.00" r="2.6" class="raw"/>
+<circle cx="471.29" cy="127.00" r="2.6" class="raw"/>
+<circle cx="461.26" cy="129.00" r="2.6" class="raw"/>
+<circle cx="459.93" cy="119.00" r="5" class="p50"/>
+<path d="M474.01 119.00 l6 11 h-12 z" class="p95"/>
+<rect x="473.03" y="127.00" width="8" height="8" class="p99"/>
+<text x="1180" y="130.00" font-size="12">p50 1.07  p95 1.25  p99 1.29 µs</text>
+<line x1="42" y1="151.00" x2="1560" y2="151.00" class="separator"/>
+<text x="42" y="182.00" font-size="14">Brute force · Uniform · width 11</text>
+<circle cx="767.08" cy="173.00" r="2.6" class="raw"/>
+<circle cx="765.46" cy="175.00" r="2.6" class="raw"/>
+<circle cx="758.40" cy="177.00" r="2.6" class="raw"/>
+<circle cx="734.48" cy="179.00" r="2.6" class="raw"/>
+<circle cx="742.47" cy="181.00" r="2.6" class="raw"/>
+<circle cx="735.92" cy="173.00" r="2.6" class="raw"/>
+<circle cx="741.97" cy="175.00" r="2.6" class="raw"/>
+<circle cx="737.84" cy="177.00" r="2.6" class="raw"/>
+<circle cx="734.84" cy="179.00" r="2.6" class="raw"/>
+<circle cx="741.56" cy="181.00" r="2.6" class="raw"/>
+<circle cx="756.88" cy="173.00" r="2.6" class="raw"/>
+<circle cx="765.27" cy="175.00" r="2.6" class="raw"/>
+<circle cx="752.61" cy="177.00" r="2.6" class="raw"/>
+<circle cx="757.70" cy="179.00" r="2.6" class="raw"/>
+<circle cx="762.91" cy="181.00" r="2.6" class="raw"/>
+<circle cx="759.83" cy="173.00" r="2.6" class="raw"/>
+<circle cx="752.70" cy="175.00" r="2.6" class="raw"/>
+<circle cx="758.01" cy="177.00" r="2.6" class="raw"/>
+<circle cx="764.47" cy="179.00" r="2.6" class="raw"/>
+<circle cx="750.04" cy="181.00" r="2.6" class="raw"/>
+<circle cx="754.81" cy="171.00" r="5" class="p50"/>
+<path d="M765.54 171.00 l6 11 h-12 z" class="p95"/>
+<rect x="762.77" y="179.00" width="8" height="8" class="p99"/>
+<text x="1180" y="182.00" font-size="12">p50 26.79  p95 30.12  p99 30.53 µs</text>
+<line x1="42" y1="203.00" x2="1560" y2="203.00" class="separator"/>
+<text x="42" y="234.00" font-size="14">Quadtree · Clustered · width 11</text>
+<circle cx="632.35" cy="225.00" r="2.6" class="raw"/>
+<circle cx="645.29" cy="227.00" r="2.6" class="raw"/>
+<circle cx="637.53" cy="229.00" r="2.6" class="raw"/>
+<circle cx="657.40" cy="231.00" r="2.6" class="raw"/>
+<circle cx="652.66" cy="233.00" r="2.6" class="raw"/>
+<circle cx="654.77" cy="225.00" r="2.6" class="raw"/>
+<circle cx="651.57" cy="227.00" r="2.6" class="raw"/>
+<circle cx="671.73" cy="229.00" r="2.6" class="raw"/>
+<circle cx="659.18" cy="231.00" r="2.6" class="raw"/>
+<circle cx="667.48" cy="233.00" r="2.6" class="raw"/>
+<circle cx="692.23" cy="225.00" r="2.6" class="raw"/>
+<circle cx="674.98" cy="227.00" r="2.6" class="raw"/>
+<circle cx="649.22" cy="229.00" r="2.6" class="raw"/>
+<circle cx="655.65" cy="231.00" r="2.6" class="raw"/>
+<circle cx="645.70" cy="233.00" r="2.6" class="raw"/>
+<circle cx="654.92" cy="225.00" r="2.6" class="raw"/>
+<circle cx="650.56" cy="227.00" r="2.6" class="raw"/>
+<circle cx="637.22" cy="229.00" r="2.6" class="raw"/>
+<circle cx="638.62" cy="231.00" r="2.6" class="raw"/>
+<circle cx="644.42" cy="233.00" r="2.6" class="raw"/>
+<circle cx="652.11" cy="223.00" r="5" class="p50"/>
+<path d="M675.93 223.00 l6 11 h-12 z" class="p95"/>
+<rect x="685.20" y="231.00" width="8" height="8" class="p99"/>
+<text x="1180" y="234.00" font-size="12">p50 8.74  p95 11.33  p99 13.09 µs</text>
+<line x1="42" y1="255.00" x2="1560" y2="255.00" class="separator"/>
+<text x="42" y="286.00" font-size="14">Brute force · Clustered · width 11</text>
+<circle cx="756.89" cy="277.00" r="2.6" class="raw"/>
+<circle cx="742.87" cy="279.00" r="2.6" class="raw"/>
+<circle cx="735.02" cy="281.00" r="2.6" class="raw"/>
+<circle cx="736.23" cy="283.00" r="2.6" class="raw"/>
+<circle cx="738.16" cy="285.00" r="2.6" class="raw"/>
+<circle cx="741.17" cy="277.00" r="2.6" class="raw"/>
+<circle cx="726.78" cy="279.00" r="2.6" class="raw"/>
+<circle cx="746.27" cy="281.00" r="2.6" class="raw"/>
+<circle cx="738.13" cy="283.00" r="2.6" class="raw"/>
+<circle cx="736.43" cy="285.00" r="2.6" class="raw"/>
+<circle cx="741.95" cy="277.00" r="2.6" class="raw"/>
+<circle cx="736.07" cy="279.00" r="2.6" class="raw"/>
+<circle cx="738.08" cy="281.00" r="2.6" class="raw"/>
+<circle cx="721.04" cy="283.00" r="2.6" class="raw"/>
+<circle cx="735.01" cy="285.00" r="2.6" class="raw"/>
+<circle cx="718.92" cy="277.00" r="2.6" class="raw"/>
+<circle cx="728.13" cy="279.00" r="2.6" class="raw"/>
+<circle cx="721.87" cy="281.00" r="2.6" class="raw"/>
+<circle cx="722.35" cy="283.00" r="2.6" class="raw"/>
+<circle cx="716.15" cy="285.00" r="2.6" class="raw"/>
+<circle cx="736.15" cy="275.00" r="5" class="p50"/>
+<path d="M746.83 275.00 l6 11 h-12 z" class="p95"/>
+<rect x="750.97" y="283.00" width="8" height="8" class="p99"/>
+<text x="1180" y="286.00" font-size="12">p50 21.86  p95 24.56  p99 26.84 µs</text>
+<line x1="42" y1="307.00" x2="1560" y2="307.00" class="separator"/>
+<text x="42" y="338.00" font-size="14">Quadtree · Uniform · width 101</text>
+<circle cx="506.07" cy="329.00" r="2.6" class="raw"/>
+<circle cx="520.78" cy="331.00" r="2.6" class="raw"/>
+<circle cx="535.39" cy="333.00" r="2.6" class="raw"/>
+<circle cx="466.64" cy="335.00" r="2.6" class="raw"/>
+<circle cx="466.92" cy="337.00" r="2.6" class="raw"/>
+<circle cx="492.94" cy="329.00" r="2.6" class="raw"/>
+<circle cx="497.27" cy="331.00" r="2.6" class="raw"/>
+<circle cx="491.84" cy="333.00" r="2.6" class="raw"/>
+<circle cx="502.09" cy="335.00" r="2.6" class="raw"/>
+<circle cx="499.44" cy="337.00" r="2.6" class="raw"/>
+<circle cx="502.09" cy="329.00" r="2.6" class="raw"/>
+<circle cx="501.29" cy="331.00" r="2.6" class="raw"/>
+<circle cx="479.51" cy="333.00" r="2.6" class="raw"/>
+<circle cx="507.75" cy="335.00" r="2.6" class="raw"/>
+<circle cx="508.91" cy="337.00" r="2.6" class="raw"/>
+<circle cx="496.43" cy="329.00" r="2.6" class="raw"/>
+<circle cx="496.56" cy="331.00" r="2.6" class="raw"/>
+<circle cx="490.93" cy="333.00" r="2.6" class="raw"/>
+<circle cx="490.89" cy="335.00" r="2.6" class="raw"/>
+<circle cx="492.55" cy="337.00" r="2.6" class="raw"/>
+<circle cx="496.91" cy="327.00" r="5" class="p50"/>
+<path d="M521.57 327.00 l6 11 h-12 z" class="p95"/>
+<rect x="528.79" y="335.00" width="8" height="8" class="p99"/>
+<text x="1180" y="338.00" font-size="12">p50 1.61  p95 2.10  p99 2.38 µs</text>
+<line x1="42" y1="359.00" x2="1560" y2="359.00" class="separator"/>
+<text x="42" y="390.00" font-size="14">Brute force · Uniform · width 101</text>
+<circle cx="733.21" cy="381.00" r="2.6" class="raw"/>
+<circle cx="736.09" cy="383.00" r="2.6" class="raw"/>
+<circle cx="722.67" cy="385.00" r="2.6" class="raw"/>
+<circle cx="720.43" cy="387.00" r="2.6" class="raw"/>
+<circle cx="729.41" cy="389.00" r="2.6" class="raw"/>
+<circle cx="724.58" cy="381.00" r="2.6" class="raw"/>
+<circle cx="715.55" cy="383.00" r="2.6" class="raw"/>
+<circle cx="730.82" cy="385.00" r="2.6" class="raw"/>
+<circle cx="720.86" cy="387.00" r="2.6" class="raw"/>
+<circle cx="729.61" cy="389.00" r="2.6" class="raw"/>
+<circle cx="716.17" cy="381.00" r="2.6" class="raw"/>
+<circle cx="736.37" cy="383.00" r="2.6" class="raw"/>
+<circle cx="723.76" cy="385.00" r="2.6" class="raw"/>
+<circle cx="723.35" cy="387.00" r="2.6" class="raw"/>
+<circle cx="731.38" cy="389.00" r="2.6" class="raw"/>
+<circle cx="725.39" cy="381.00" r="2.6" class="raw"/>
+<circle cx="731.87" cy="383.00" r="2.6" class="raw"/>
+<circle cx="723.17" cy="385.00" r="2.6" class="raw"/>
+<circle cx="718.06" cy="387.00" r="2.6" class="raw"/>
+<circle cx="720.88" cy="389.00" r="2.6" class="raw"/>
+<circle cx="724.17" cy="379.00" r="5" class="p50"/>
+<path d="M736.11 379.00 l6 11 h-12 z" class="p95"/>
+<rect x="732.32" y="387.00" width="8" height="8" class="p99"/>
+<text x="1180" y="390.00" font-size="12">p50 19.18  p95 21.85  p99 21.90 µs</text>
+<line x1="42" y1="411.00" x2="1560" y2="411.00" class="separator"/>
+<rect x="28" y="416.00" width="1538" height="42" rx="5" fill="#fff3e0"/>
+<text x="42" y="442.00" font-size="14">Quadtree · Clustered · width 101</text>
+<circle cx="1103.68" cy="433.00" r="2.6" class="raw"/>
+<circle cx="1098.28" cy="435.00" r="2.6" class="raw"/>
+<circle cx="1070.76" cy="437.00" r="2.6" class="raw"/>
+<circle cx="1091.39" cy="439.00" r="2.6" class="raw"/>
+<circle cx="1087.08" cy="441.00" r="2.6" class="raw"/>
+<circle cx="1081.86" cy="433.00" r="2.6" class="raw"/>
+<circle cx="1088.83" cy="435.00" r="2.6" class="raw"/>
+<circle cx="1067.80" cy="437.00" r="2.6" class="raw"/>
+<circle cx="1100.66" cy="439.00" r="2.6" class="raw"/>
+<circle cx="1094.38" cy="441.00" r="2.6" class="raw"/>
+<circle cx="1081.88" cy="433.00" r="2.6" class="raw"/>
+<circle cx="1081.21" cy="435.00" r="2.6" class="raw"/>
+<circle cx="1079.33" cy="437.00" r="2.6" class="raw"/>
+<circle cx="1083.23" cy="439.00" r="2.6" class="raw"/>
+<circle cx="1094.17" cy="441.00" r="2.6" class="raw"/>
+<circle cx="1083.31" cy="433.00" r="2.6" class="raw"/>
+<circle cx="1088.43" cy="435.00" r="2.6" class="raw"/>
+<circle cx="1093.95" cy="437.00" r="2.6" class="raw"/>
+<circle cx="1079.61" cy="439.00" r="2.6" class="raw"/>
+<circle cx="1085.57" cy="441.00" r="2.6" class="raw"/>
+<circle cx="1086.33" cy="431.00" r="5" class="p50"/>
+<path d="M1100.82 431.00 l6 11 h-12 z" class="p95"/>
+<rect x="1099.11" y="439.00" width="8" height="8" class="p99"/>
+<text x="1180" y="442.00" font-size="12">p50 998.26  p95 1169.28  p99 1198.97 µs</text>
+<line x1="42" y1="463.00" x2="1560" y2="463.00" class="separator"/>
+<rect x="28" y="468.00" width="1538" height="42" rx="5" fill="#fff3e0"/>
+<text x="42" y="494.00" font-size="14">Brute force · Clustered · width 101</text>
+<circle cx="824.63" cy="485.00" r="2.6" class="raw"/>
+<circle cx="815.30" cy="487.00" r="2.6" class="raw"/>
+<circle cx="820.76" cy="489.00" r="2.6" class="raw"/>
+<circle cx="815.99" cy="491.00" r="2.6" class="raw"/>
+<circle cx="820.72" cy="493.00" r="2.6" class="raw"/>
+<circle cx="813.11" cy="485.00" r="2.6" class="raw"/>
+<circle cx="817.76" cy="487.00" r="2.6" class="raw"/>
+<circle cx="812.46" cy="489.00" r="2.6" class="raw"/>
+<circle cx="809.34" cy="491.00" r="2.6" class="raw"/>
+<circle cx="817.51" cy="493.00" r="2.6" class="raw"/>
+<circle cx="811.88" cy="485.00" r="2.6" class="raw"/>
+<circle cx="819.42" cy="487.00" r="2.6" class="raw"/>
+<circle cx="809.90" cy="489.00" r="2.6" class="raw"/>
+<circle cx="826.25" cy="491.00" r="2.6" class="raw"/>
+<circle cx="811.49" cy="493.00" r="2.6" class="raw"/>
+<circle cx="820.02" cy="485.00" r="2.6" class="raw"/>
+<circle cx="809.64" cy="487.00" r="2.6" class="raw"/>
+<circle cx="828.59" cy="489.00" r="2.6" class="raw"/>
+<circle cx="808.47" cy="491.00" r="2.6" class="raw"/>
+<circle cx="814.70" cy="493.00" r="2.6" class="raw"/>
+<circle cx="815.64" cy="483.00" r="5" class="p50"/>
+<path d="M826.37 483.00 l6 11 h-12 z" class="p95"/>
+<rect x="824.15" y="491.00" width="8" height="8" class="p99"/>
+<text x="1180" y="494.00" font-size="12">p50 52.04  p95 58.50  p99 59.65 µs</text>
+<circle cx="990" cy="82" r="5" class="legend-p50"/>
+<text x="1002" y="87" font-size="12">p50</text>
+<path d="M1090 76 l6 11 h-12 z" class="legend-p95"/>
+<text x="1102" y="87" font-size="12">p95</text>
+<rect x="1186" y="78" width="8" height="8" class="legend-p99"/>
+<text x="1202" y="87" font-size="12">p99</text>
+<text x="770.00" y="557.00" text-anchor="middle" font-size="13">Time per query (µs, log scale)</text>
+<circle cx="42" cy="635" r="3" class="raw-legend"/><text x="53" y="639" class="muted" font-size="12">Each gray dot is one measured repetition. Percentiles use linear interpolation across the 20 values; they are not production tail-latency guarantees.</text>
+</svg>

@@ -95,7 +95,7 @@ def https_get(port: int, ca_cert: Path, path: str,
     context = ssl.create_default_context(cafile=str(ca_cert))
     if client_cert and client_key:
         context.load_cert_chain(str(client_cert), str(client_key))
-    with socket.create_connection(("127.0.0.1", port), timeout=3) as raw:
+    with socket.create_connection(("127.0.0.1", port), timeout=10) as raw:
         with context.wrap_socket(raw, server_hostname="localhost") as stream:
             stream.sendall(
                 f"GET {path} HTTP/1.1\r\nHost: localhost\r\n"
@@ -160,6 +160,7 @@ class ServerSmokeTests(unittest.TestCase):
                 text=True,
                 **popen_options,
             )
+            output = ""
             try:
                 deadline = time.monotonic() + 12
                 health_status = None
@@ -183,16 +184,23 @@ class ServerSmokeTests(unittest.TestCase):
 
                 token = bytes.fromhex(token_path.read_text(encoding="ascii").strip())
                 self.assertEqual(len(token), 32)
-                frame = bytearray(b"AG\x01\x01\x00\x04")
+                hello = bytearray(b"AG\x02\x00\x00\x02")
+                hello.extend(bytes(8))
+                hello.extend(b"\x00\x02")
+                frame = bytearray(b"AG\x02\x01\x00\x0e")
                 frame.extend((1).to_bytes(8, "big"))
                 frame.extend((1000).to_bytes(2, "big", signed=True))
                 frame.extend((0).to_bytes(2, "big", signed=True))
-                self.assertEqual(len(frame), 18)
+                frame.extend(bytes(2))
+                frame.extend((10000).to_bytes(4, "big", signed=True))
+                frame.extend((10000).to_bytes(4, "big", signed=True))
+                self.assertEqual(len(hello), 16)
+                self.assertEqual(len(frame), 28)
 
                 game_context = ssl.create_default_context(cafile=str(ca_cert))
                 with socket.create_connection(("127.0.0.1", game_port), timeout=3) as raw:
                     with game_context.wrap_socket(raw, server_hostname="localhost") as game:
-                        game.sendall(token + frame)
+                        game.sendall(token + hello + frame)
                         game.settimeout(0.3)
                         try:
                             self.assertNotEqual(game.recv(1), b"")
@@ -205,10 +213,75 @@ class ServerSmokeTests(unittest.TestCase):
                     process.send_signal(signal.SIGINT)
                 output = process.communicate(timeout=8)[0]
                 self.assertEqual(process.returncode, 0, output)
+                server_lines = [line for line in output.splitlines() if line.strip()]
+                server_logs = [json.loads(line) for line in server_lines]
+                self.assertTrue(all(
+                    isinstance(item, dict)
+                    and isinstance(item.get("timestamp_ms"), int)
+                    and isinstance(item.get("level"), str)
+                    and isinstance(item.get("event"), str)
+                    and isinstance(item.get("message"), str)
+                    for item in server_logs
+                ))
+                self.assertFalse(any(
+                    any(word in key.lower() for word in (
+                        "token", "password", "secret", "private", "credential", "key"
+                    ))
+                    for item in server_logs for key in item
+                ))
+                self.assertNotIn(
+                    token_path.read_text(encoding="ascii").strip(), output
+                )
+                self.assertNotIn(server_key.read_text(encoding="ascii"), output)
+                print(
+                    "Server JSON logs: "
+                    f"lines={len(server_lines)} invalid=0 sensitive_fields=[]"
+                )
             finally:
                 if process.poll() is None:
                     process.kill()
                     process.wait(timeout=5)
+
+    def test_json_logs_parse_and_exclude_secrets(self) -> None:
+        probe_candidates = [
+            REPOSITORY_ROOT / "build-audit-fresh" / "tests" /
+            "aegisguard_json_log_probe.exe",
+            REPOSITORY_ROOT / "build" / "tests" / "aegisguard_json_log_probe.exe",
+        ]
+        probe = next((path for path in probe_candidates if path.exists()), None)
+        if probe is None:
+            self.skipTest("build aegisguard_json_log_probe before running tests")
+
+        result = subprocess.run(
+            [str(probe)], check=True, capture_output=True, text=True, timeout=10
+        )
+        lines = [line for line in result.stderr.splitlines() if line.strip()]
+        parsed = [json.loads(line) for line in lines]
+        invalid_shape = [
+            item for item in parsed
+            if not isinstance(item, dict)
+            or not isinstance(item.get("timestamp_ms"), int)
+            or not isinstance(item.get("level"), str)
+            or not isinstance(item.get("event"), str)
+            or not isinstance(item.get("message"), str)
+        ]
+        sensitive_names = {
+            key
+            for item in parsed
+            if isinstance(item, dict)
+            for key in item
+            if any(word in key.lower() for word in (
+                "token", "password", "secret", "private", "credential", "key"
+            ))
+        }
+        self.assertEqual(len(lines), 100)
+        self.assertEqual(invalid_shape, [])
+        self.assertEqual(sensitive_names, set())
+        self.assertNotIn("secret", result.stderr.lower())
+        print(
+            "JSON log validation: "
+            f"lines={len(lines)} invalid=0 sensitive_fields={sorted(sensitive_names)}"
+        )
 
 
 if __name__ == "__main__":

@@ -36,6 +36,20 @@ TEST(ServerConfigTest, ParsesPortAndProvisioningPaths) {
     EXPECT_EQ(config.maximum_connections, 4U);
 }
 
+TEST(ServerConfigTest, ParsesQueueAndPerIpLimits) {
+    const ServerConfig config = parse_server_config(R"({
+        "maximum_queued_intents_per_player": 12,
+        "ip_rate_capacity": 90,
+        "ip_rate_per_second": 45,
+        "maximum_tracked_ip_rates": 200
+    })");
+
+    EXPECT_EQ(config.maximum_queued_intents_per_player, 12U);
+    EXPECT_DOUBLE_EQ(config.ip_rate_capacity, 90.0);
+    EXPECT_DOUBLE_EQ(config.ip_rate_per_second, 45.0);
+    EXPECT_EQ(config.maximum_tracked_ip_rates, 200U);
+}
+
 TEST(ServerConfigTest, RejectsInvalidDocumentAndPort) {
     EXPECT_THROW(
         static_cast<void>(parse_server_config("{broken}")),
@@ -49,6 +63,13 @@ TEST(ServerConfigTest, RejectsInvalidDocumentAndPort) {
     EXPECT_THROW(
         static_cast<void>(parse_server_config(
             R"({"port": 18443, "admin_port": 18443})")),
+        std::invalid_argument);
+    EXPECT_THROW(
+        static_cast<void>(parse_server_config(
+            R"({"maximum_queued_intents_per_player": 0})")),
+        std::invalid_argument);
+    EXPECT_THROW(
+        static_cast<void>(parse_server_config(R"({"ip_rate_capacity": 0})")),
         std::invalid_argument);
 }
 

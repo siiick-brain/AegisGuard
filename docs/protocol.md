@@ -17,34 +17,48 @@ service. The referenced `io_context` and TLS context must remain alive.
 The session store and simulation must remain alive as well. The error callback
 must remain alive until service shutdown has completed.
 
-## Version 1 movement frame
+## Version 2 protocol
 
-The version 1 frame is exactly 18 bytes. Multi-byte integers use network byte
-order.
+After the TLS handshake and 32-byte session credential, the client must send
+one versioned HELLO before movement. Both messages use a 14-byte common
+header. Multi-byte integers use network byte order. Version 1 clients are
+rejected; there is no downgrade or implicit version negotiation.
 
 | Offset | Length | Field | Accepted values |
 |---:|---:|---|---|
 | 0 | 2 | Magic | ASCII `AG` |
-| 2 | 1 | Schema version | `1` |
-| 3 | 1 | Message type | `1` for movement intent |
-| 4 | 2 | Payload length | `4` |
-| 6 | 8 | Sequence number | Unsigned, nonzero, strictly increasing per session |
-| 14 | 2 | X direction | Signed integer from -1000 to 1000 |
-| 16 | 2 | Y direction | Signed integer from -1000 to 1000 |
+| 2 | 1 | Schema version | `2` |
+| 3 | 1 | Message type | `0` HELLO; `1` movement |
+| 4 | 2 | Payload length | `2` for HELLO; `14` for movement |
+| 6 | 8 | Sequence number | Zero for HELLO; nonzero and strictly increasing for movement |
 
-Direction values are divided by 1000 when decoded. The simulation applies its
-own speed cap and world bounds. The frame carries no player ID or position.
-It carries no score or authority to change game state. The connection/session
-layer must bind an authenticated session to a server-owned player before
-dispatching intent.
+The HELLO payload is one unsigned 16-bit protocol version. It must equal `2`.
+Its frame is exactly 16 bytes.
+
+The movement payload is exactly 14 bytes:
+
+| Payload offset | Length | Field | Accepted values |
+|---:|---:|---|---|
+| 0 | 2 | X direction | Signed integer from -1000 to 1000 |
+| 2 | 2 | Y direction | Signed integer from -1000 to 1000 |
+| 4 | 2 | Aim angle | Unsigned turn fraction mapped to `[0, 2π)` |
+| 6 | 4 | Reported X position | Signed integer in thousandths of a world unit |
+| 10 | 4 | Reported Y position | Signed integer in thousandths of a world unit |
+
+The complete movement frame is exactly 28 bytes. Direction values are divided
+by 1000 when decoded. The position fields are untrusted client telemetry used
+only by speed and teleport anomaly checks. They are never copied to player
+state. The simulation continues to use the direction vector, its own speed
+cap and world bounds. The frame carries no player ID, score or authority to
+change game state. The authenticated session binds the connection to a
+server-owned player before intent is dispatched.
 
 The parser rejects incomplete or oversized payloads and extra trailing bytes.
-It rejects unknown versions or message types. It also rejects zero sequences
-and out-of-range movement. The frame size is fixed. The decoder allocates no
-memory based on a client
-length field. The listener validates the 14-byte header before reading the
-fixed four-byte movement payload. One absolute frame deadline covers both
-reads.
+It rejects unknown versions or message types, unsupported HELLO values, zero
+movement sequences and out-of-range direction. The maximum frame buffer is
+fixed at 28 bytes. The decoder allocates no memory based on a client length
+field. The listener validates the 14-byte header before reading the bounded
+payload. A frame deadline covers the header and payload reads.
 
 ## Connection flow
 
@@ -55,18 +69,25 @@ reads.
    that is not part of this repository.
 3. The service validates the credential and confirms that its player already
    exists in the simulation. Each player may have only one active connection.
-4. The client sends version 1 movement frames. The service revalidates the
-   credential for every frame and every simulation tick. Expiry or revocation
-   closes the connection and removes its movement intent.
-5. The service stores only the latest movement intent per connected player.
-   The map is bounded by the connection cap. The simulation consumes these
-   inputs on its fixed timestep rather than once per client packet.
+4. The client sends a version 2 HELLO followed by version 2 movement frames.
+   The service revalidates the credential for every frame and every
+   simulation tick. Expiry or revocation closes the connection and removes
+   its movement intent.
+5. The service stores movement intents in a bounded FIFO for each connected
+   player. The default queue holds 64 pending intents. Each simulation tick
+   consumes one queued value and holds the last applied intent until the next
+   value arrives. A full queue rejects the frame and closes the connection.
+   Disconnecting removes that player's queue.
 
 Authentication and frame reads have separate deadlines. The TLS/authentication
 deadline is three seconds. A complete frame has a one-second deadline. The default
 connection cap is 128. Each connection has a token bucket with capacity 16 and
-refill rate 60 frames per second. Evaluate these initial values under workload
-before deployment.
+refill rate 60 frames per second. The shared per-IP bucket defaults to
+capacity 128 and refill rate 120 frames per second. It tracks at most 4096
+addresses and retains idle state for five minutes; reconnects from an address
+reuse its existing bucket during that period. The per-player queue defaults
+to 64 entries and is capped at 1024. Evaluate these initial values under
+workload before deployment.
 
 ## Sequence and rate controls
 
@@ -75,6 +96,21 @@ out-of-order input. It is scoped to one authenticated connection. `TokenBucket`
 uses a monotonic clock and rejects clock regression. Invalid framing and
 authentication close the connection without returning protocol detail to the
 client. Replay and rate-limit events do the same.
+
+## Movement anomaly gates
+
+Movement frames include client-reported position and aim telemetry. The
+server compares position displacement against configured simulation speed
+with a 250 ms latency grace and a 1.0-world-unit jitter allowance. A
+displacement above 10 world units is classified as a teleport before the
+speed check. Aim changes are compared using the shortest wrapped angular
+distance; the default bound is 40 radians per second with a 20 ms grace.
+These thresholds are engineering defaults, not empirical gameplay
+calibration. Anomalous frames are rejected and the connection is closed.
+
+The tests include deterministic latency, jitter and fast-turn examples. They
+do not establish false-positive rates on real networks or validate a real
+player population.
 
 ## Session credentials
 

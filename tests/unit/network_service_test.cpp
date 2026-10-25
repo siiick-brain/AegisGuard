@@ -91,12 +91,14 @@ void install_test_certificate(asio::ssl::context& context) {
 }
 
 std::array<std::uint8_t, kMaximumFrameSize> make_frame(
-    std::uint64_t sequence, std::int16_t x, std::int16_t y) {
+    std::uint64_t sequence, std::int16_t x, std::int16_t y,
+    std::uint16_t angle = 0, std::int32_t position_x = 10000,
+    std::int32_t position_y = 10000) {
     std::array<std::uint8_t, kMaximumFrameSize> bytes{};
     bytes[0] = 0x41;
     bytes[1] = 0x47;
-    bytes[2] = 1;
-    bytes[3] = 1;
+    bytes[2] = kProtocolVersion;
+    bytes[3] = kMoveMessageType;
     bytes[5] = static_cast<std::uint8_t>(kMovePayloadSize);
     for (std::size_t index = 0; index < 8; ++index) {
         const auto shift = static_cast<unsigned int>((7 - index) * 8);
@@ -109,6 +111,26 @@ std::array<std::uint8_t, kMaximumFrameSize> make_frame(
     bytes[15] = static_cast<std::uint8_t>(x_bits);
     bytes[16] = static_cast<std::uint8_t>(y_bits >> 8U);
     bytes[17] = static_cast<std::uint8_t>(y_bits);
+    bytes[18] = static_cast<std::uint8_t>(angle >> 8U);
+    bytes[19] = static_cast<std::uint8_t>(angle);
+    for (std::size_t index = 0; index < 4; ++index) {
+        const auto shift = static_cast<unsigned int>((3 - index) * 8);
+        bytes[20 + index] = static_cast<std::uint8_t>(
+            static_cast<std::uint32_t>(position_x) >> shift);
+        bytes[24 + index] = static_cast<std::uint8_t>(
+            static_cast<std::uint32_t>(position_y) >> shift);
+    }
+    return bytes;
+}
+
+std::array<std::uint8_t, kHelloFrameSize> make_hello() {
+    std::array<std::uint8_t, kHelloFrameSize> bytes{};
+    bytes[0] = 0x41;
+    bytes[1] = 0x47;
+    bytes[2] = kProtocolVersion;
+    bytes[3] = kHelloMessageType;
+    bytes[5] = static_cast<std::uint8_t>(kHelloPayloadSize);
+    bytes[15] = kProtocolVersion;
     return bytes;
 }
 
@@ -128,6 +150,7 @@ protected:
         config.frame_timeout = 150ms;
         config.movement_rate_capacity = 2.0;
         config.movement_rate_per_second = 1.0;
+        config.movement_anomaly.maximum_aim_rate_radians_per_second = 10.0;
         config.on_error = [this](std::error_code) {
             service_error_count_.fetch_add(1, std::memory_order_relaxed);
         };
@@ -143,6 +166,7 @@ protected:
             }
             lifecycle_condition_.notify_all();
         };
+        customize_network_config(config);
         service_ = std::make_unique<NetworkService>(
             server_io_, server_tls_, sessions_, simulation_, std::move(config));
         service_->start();
@@ -161,6 +185,8 @@ protected:
         service_.reset();
     }
 
+    virtual void customize_network_config(NetworkServiceConfig&) {}
+
     asio::ssl::stream<asio::ip::tcp::socket> connect_client(
         asio::io_context& client_io,
         asio::ssl::context& client_tls) {
@@ -174,6 +200,8 @@ protected:
         asio::ssl::stream<asio::ip::tcp::socket>& client,
         const SessionCredential& credential) {
         asio::write(client, asio::buffer(credential));
+        const auto hello = make_hello();
+        asio::write(client, asio::buffer(hello));
     }
 
     std::optional<PlayerState> player_state() {
@@ -205,6 +233,18 @@ protected:
         while (std::chrono::steady_clock::now() < deadline) {
             const auto state = player_state();
             if (state && state->velocity.x == expected) {
+                return true;
+            }
+            std::this_thread::sleep_for(5ms);
+        }
+        return false;
+    }
+
+    bool wait_for_player_velocity_y(double expected) {
+        const auto deadline = std::chrono::steady_clock::now() + 1s;
+        while (std::chrono::steady_clock::now() < deadline) {
+            const auto state = player_state();
+            if (state && state->velocity.y == expected) {
                 return true;
             }
             std::this_thread::sleep_for(5ms);
@@ -284,6 +324,14 @@ protected:
     std::thread worker_;
 };
 
+class NetworkServiceIpRateTest : public NetworkServiceTest {
+protected:
+    void customize_network_config(NetworkServiceConfig& config) override {
+        config.ip_rate_capacity = 2.0;
+        config.ip_rate_per_second = 0.001;
+    }
+};
+
 TEST(NetworkServiceConfigTest, RequiresDetectionHandlerToAvoidDroppingFindings) {
     for (int attempt = 0; attempt < 8; ++attempt) {
         auto io_context = std::make_shared<asio::io_context>();
@@ -340,6 +388,54 @@ TEST_F(NetworkServiceTest, ClosesPartialFramesAfterTheReadDeadline) {
     EXPECT_TRUE(wait_for_close(client, client_io));
 }
 
+TEST_F(NetworkServiceTest, RejectsOversizedFrameOnLoopback) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    std::array<std::uint8_t, kProtocolHeaderSize> oversized_header{
+        0x41, 0x47, kProtocolVersion, kMoveMessageType,
+        0xff, 0xff, 0, 0, 0, 0, 0, 0, 0, 1};
+    asio::write(client, asio::buffer(oversized_header));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    const auto state = player_state();
+    ASSERT_TRUE(state);
+    EXPECT_DOUBLE_EQ(state->position.x, 10.0);
+}
+
+TEST_F(NetworkServiceTest, RejectsOldProtocolVersion) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    asio::write(client, asio::buffer(credential_));
+
+    auto old_frame = make_frame(1, 0, 0);
+    old_frame[2] = 1;
+    asio::write(client, asio::buffer(old_frame));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+}
+
+TEST_F(NetworkServiceTest, RejectsMovementBeforeHello) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    asio::write(client, asio::buffer(credential_));
+
+    const auto frame = make_frame(1, 1000, 0);
+    asio::write(client, asio::buffer(frame));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    const auto state = player_state();
+    ASSERT_TRUE(state);
+    EXPECT_DOUBLE_EQ(state->position.x, 10.0);
+}
+
 TEST_F(NetworkServiceTest, ClosesUnauthenticatedConnectionsAfterTheDeadline) {
     asio::io_context client_io;
     asio::ssl::context client_tls(asio::ssl::context::tls_client);
@@ -387,6 +483,75 @@ TEST_F(NetworkServiceTest, ReportsOutOfRangeMovementAsTestOnlyEvidence) {
     const auto state = player_state();
     ASSERT_TRUE(state);
     EXPECT_DOUBLE_EQ(state->position.x, 10.0);
+}
+
+TEST_F(NetworkServiceTest, ForgedPositionRejected) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto frame = make_frame(1, 1000, 0, 0, 1000000, 10000);
+    asio::write(client, asio::buffer(frame));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    ASSERT_TRUE(wait_for_detection_count(1));
+    EXPECT_EQ(detection_findings()[0].signal,
+              RuleSignal::teleport_distance_exceeded);
+    const auto state = player_state();
+    ASSERT_TRUE(state);
+    EXPECT_DOUBLE_EQ(state->position.x, 10.0);
+}
+
+TEST_F(NetworkServiceTest, SpeedCheatRejected) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto baseline = make_frame(1, 0, 0);
+    const auto excessive_speed = make_frame(2, 1000, 0, 0, 19000, 10000);
+    asio::write(client, asio::buffer(baseline));
+    asio::write(client, asio::buffer(excessive_speed));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    ASSERT_TRUE(wait_for_detection_count(1));
+    EXPECT_EQ(detection_findings()[0].signal, RuleSignal::speed_exceeded);
+}
+
+TEST_F(NetworkServiceTest, TeleportCheatRejected) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto teleport = make_frame(1, 1000, 0, 0, 21001, 10000);
+    asio::write(client, asio::buffer(teleport));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    ASSERT_TRUE(wait_for_detection_count(1));
+    EXPECT_EQ(detection_findings()[0].signal,
+              RuleSignal::teleport_distance_exceeded);
+}
+
+TEST_F(NetworkServiceTest, AimSnapCheatRejected) {
+    asio::io_context client_io;
+    asio::ssl::context client_tls(asio::ssl::context::tls_client);
+    client_tls.set_verify_mode(asio::ssl::verify_none);
+    auto client = connect_client(client_io, client_tls);
+    authenticate(client, credential_);
+
+    const auto baseline = make_frame(1, 0, 0, 0);
+    const auto snap = make_frame(2, 0, 0, 32768);
+    asio::write(client, asio::buffer(baseline));
+    asio::write(client, asio::buffer(snap));
+
+    EXPECT_TRUE(wait_for_close(client, client_io));
+    ASSERT_TRUE(wait_for_detection_count(1));
+    EXPECT_EQ(detection_findings()[0].signal, RuleSignal::aim_snap_exceeded);
 }
 
 TEST_F(NetworkServiceTest, ClosesConnectionsWhenASequenceIsReplayed) {
@@ -519,7 +684,7 @@ TEST_F(NetworkServiceTest, RejectsConnectionsAboveTheConfiguredLimit) {
         asio::system_error);
 }
 
-TEST_F(NetworkServiceTest, AppliesThePerConnectionMovementRateLimit) {
+TEST_F(NetworkServiceTest, FloodRateLimitRejected) {
     asio::io_context client_io;
     asio::ssl::context client_tls(asio::ssl::context::tls_client);
     client_tls.set_verify_mode(asio::ssl::verify_none);
@@ -538,6 +703,37 @@ TEST_F(NetworkServiceTest, AppliesThePerConnectionMovementRateLimit) {
     const auto findings = detection_findings();
     ASSERT_EQ(findings.size(), 1U);
     EXPECT_EQ(findings[0].signal, RuleSignal::movement_rate_exceeded);
+}
+
+TEST_F(NetworkServiceIpRateTest, PerIpRateLimitSurvivesReconnect) {
+    asio::io_context first_io;
+    asio::ssl::context first_tls(asio::ssl::context::tls_client);
+    first_tls.set_verify_mode(asio::ssl::verify_none);
+    auto first = connect_client(first_io, first_tls);
+    authenticate(first, credential_);
+
+    const auto move_x = make_frame(1, 1000, 0);
+    const auto move_y = make_frame(2, 0, 1000);
+    asio::write(first, asio::buffer(move_x));
+    asio::write(first, asio::buffer(move_y));
+    ASSERT_TRUE(wait_for_player_velocity_x(5.0));
+    ASSERT_TRUE(wait_for_player_velocity_y(5.0));
+
+    asio::error_code close_error;
+    first.lowest_layer().close(close_error);
+    ASSERT_TRUE(wait_for_lifecycle_event("session destroyed"));
+
+    asio::io_context second_io;
+    asio::ssl::context second_tls(asio::ssl::context::tls_client);
+    second_tls.set_verify_mode(asio::ssl::verify_none);
+    auto second = connect_client(second_io, second_tls);
+    authenticate(second, credential_);
+    const auto frame = make_frame(1, 0, 0);
+    asio::write(second, asio::buffer(frame));
+
+    EXPECT_TRUE(wait_for_close(second, second_io));
+    ASSERT_TRUE(wait_for_detection_count(1));
+    EXPECT_EQ(detection_findings()[0].signal, RuleSignal::ip_rate_exceeded);
 }
 
 TEST_F(NetworkServiceTest, StopsAnAuthenticatedConnectionWithTlsShutdown) {

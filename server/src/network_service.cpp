@@ -1,5 +1,8 @@
 #include "aegisguard/network_service.hpp"
 
+#include "aegisguard/json_log.hpp"
+#include "aegisguard/intent_queue.hpp"
+#include "aegisguard/ip_rate_limiter.hpp"
 #include "aegisguard/protocol.hpp"
 
 #include <openssl/crypto.h>
@@ -28,6 +31,22 @@ constexpr std::size_t kCredentialSize = SessionCredential{}.size();
 
 std::error_code service_error() {
     return std::make_error_code(std::errc::state_not_recoverable);
+}
+
+std::optional<RuleSignal> movement_rule_signal(MovementAnomaly anomaly) {
+    switch (anomaly) {
+        case MovementAnomaly::none:
+        case MovementAnomaly::invalid_sample:
+        case MovementAnomaly::clock_regression:
+            return std::nullopt;
+        case MovementAnomaly::speed:
+            return RuleSignal::speed_exceeded;
+        case MovementAnomaly::teleport:
+            return RuleSignal::teleport_distance_exceeded;
+        case MovementAnomaly::aim_snap:
+            return RuleSignal::aim_snap_exceeded;
+    }
+    return std::nullopt;
 }
 
 void configure_tls(asio::ssl::context& context) {
@@ -60,10 +79,20 @@ NetworkServiceConfig validate_config(
         config.movement_rate_capacity < 1.0 ||
         !std::isfinite(config.movement_rate_per_second) ||
         config.movement_rate_per_second <= 0.0 ||
+        !std::isfinite(config.ip_rate_capacity) ||
+        config.ip_rate_capacity < 1.0 ||
+        !std::isfinite(config.ip_rate_per_second) ||
+        config.ip_rate_per_second <= 0.0 ||
+        config.maximum_tracked_ip_rates == 0 ||
+        config.maximum_tracked_ip_rates > kMaximumTrackedIpAddresses ||
+        config.maximum_queued_intents_per_player == 0 ||
+        config.maximum_queued_intents_per_player >
+            kMaximumQueuedIntentsPerPlayer ||
         tick_interval <= SteadyClock::duration::zero() ||
         !config.on_error || !config.on_detection) {
         throw std::invalid_argument("network service configuration is invalid");
     }
+    validate_movement_anomaly_config(config.movement_anomaly);
     return config;
 }
 
@@ -77,8 +106,8 @@ void log_lifecycle(
     const NetworkServiceConfig& config,
     std::string_view event,
     const void* object) {
-    std::osyncstream(std::clog)
-        << "[aegisguard.tls] " << event << " object=" << object << '\n';
+    static_cast<void>(object);
+    write_json_log("info", "network_lifecycle", event);
     if (config.on_lifecycle) {
         config.on_lifecycle(event, object);
     }
@@ -91,7 +120,10 @@ class NetworkService::Impl final
 public:
     class Connection final : public std::enable_shared_from_this<Connection> {
     public:
-        Connection(std::shared_ptr<Impl> owner, Tcp::socket socket);
+        Connection(
+            std::shared_ptr<Impl> owner,
+            Tcp::socket socket,
+            std::string remote_ip);
         ~Connection();
         void start();
         void shutdown();
@@ -110,13 +142,17 @@ public:
 
         std::shared_ptr<Impl> owner_;
         asio::ssl::stream<Tcp::socket> stream_;
+        std::string remote_ip_;
         asio::steady_timer timer_;
         std::array<std::uint8_t, kCredentialSize> credential_{};
         std::array<std::uint8_t, kMaximumFrameSize> frame_{};
+        ProtocolHeader current_header_{};
         SequenceGuard sequence_guard_;
         TokenBucket limiter_;
+        std::optional<MovementAnomalyDetector> movement_detector_;
         std::optional<std::uint64_t> player_id_;
         bool authenticated_{};
+        bool hello_received_{};
         bool handshake_in_progress_{};
         bool shutdown_requested_{};
         bool shutdown_started_{};
@@ -139,6 +175,10 @@ public:
           sessions_(sessions),
           simulation_(simulation),
           detector_(config_.rule_detector),
+          ip_rate_limiter_(
+              config_.ip_rate_capacity,
+              config_.ip_rate_per_second,
+              config_.maximum_tracked_ip_rates),
           strand_(asio::make_strand(*io_context_)),
           acceptor_(strand_),
           tick_timer_(strand_),
@@ -204,7 +244,7 @@ public:
             for (const auto& connection : connections) {
                 connection->shutdown();
             }
-            self->movement_by_player_.clear();
+            self->intents_by_player_.clear();
         });
     }
 
@@ -243,10 +283,22 @@ private:
                     asio::error_code ignored;
                     socket->close(ignored);
                 } else {
-                    auto connection = std::make_shared<Connection>(
-                        self, std::move(*socket));
-                    self->connections_.insert(connection);
-                    connection->start();
+                    asio::error_code endpoint_error;
+                    const auto remote = socket->remote_endpoint(endpoint_error);
+                    std::string remote_ip;
+                    if (!endpoint_error) {
+                        remote_ip = remote.address().to_string();
+                    }
+                    if (endpoint_error) {
+                        self->config_.on_error(endpoint_error);
+                        asio::error_code ignored;
+                        socket->close(ignored);
+                    } else {
+                        auto connection = std::make_shared<Connection>(
+                            self, std::move(*socket), std::move(remote_ip));
+                        self->connections_.insert(connection);
+                        connection->start();
+                    }
                 }
                 self->accept_next();
             }));
@@ -287,10 +339,11 @@ private:
                     connection->close();
                 }
 
-                inputs.reserve(self->movement_by_player_.size());
-                for (const auto& [player_id, movement] :
-                     self->movement_by_player_) {
-                    inputs.push_back(PlayerInput{player_id, movement});
+                inputs.reserve(self->intents_by_player_.size());
+                for (auto& [player_id, intent_queue] :
+                     self->intents_by_player_) {
+                    inputs.push_back(PlayerInput{
+                        player_id, intent_queue.advance_tick()});
                 }
                 if (self->simulation_.step(inputs) != SimulationError::none) {
                     self->config_.on_error(service_error());
@@ -316,11 +369,18 @@ private:
             return;
         }
         active_players_.emplace(player_id, connection);
-        movement_by_player_.insert_or_assign(player_id, movement);
+        intents_by_player_.try_emplace(
+            player_id, config_.maximum_queued_intents_per_player);
+        if (!enqueue_movement(player_id, movement)) {
+            connection->close();
+        }
     }
 
-    void update_movement(std::uint64_t player_id, Vec2 movement) {
-        movement_by_player_.insert_or_assign(player_id, movement);
+    [[nodiscard]] bool enqueue_movement(
+        std::uint64_t player_id, Vec2 movement) {
+        const auto queue = intents_by_player_.find(player_id);
+        return queue != intents_by_player_.end() &&
+               queue->second.enqueue(movement);
     }
 
     void report_rule_signal(std::uint64_t player_id, RuleSignal signal) {
@@ -345,7 +405,7 @@ private:
         if (active != active_players_.end() &&
             active->second.lock() == connection) {
             active_players_.erase(active);
-            movement_by_player_.erase(*player_id);
+            intents_by_player_.erase(*player_id);
         }
     }
 
@@ -355,6 +415,7 @@ private:
     SessionStore& sessions_;
     Simulation& simulation_;
     RuleDetector detector_;
+    IpRateLimiter ip_rate_limiter_;
     asio::strand<asio::io_context::executor_type> strand_;
     Tcp::acceptor acceptor_;
     asio::steady_timer tick_timer_;
@@ -362,16 +423,17 @@ private:
     SteadyClock::time_point next_tick_{};
     std::set<std::shared_ptr<Connection>> connections_;
     std::map<std::uint64_t, std::weak_ptr<Connection>> active_players_;
-    std::map<std::uint64_t, Vec2> movement_by_player_;
+    std::map<std::uint64_t, IntentQueue> intents_by_player_;
     bool started_{};
     bool stopping_{};
     std::atomic_bool stop_requested_{};
 };
 
 NetworkService::Impl::Connection::Connection(
-    std::shared_ptr<Impl> owner, Tcp::socket socket)
+    std::shared_ptr<Impl> owner, Tcp::socket socket, std::string remote_ip)
     : owner_(std::move(owner)),
       stream_(std::move(socket), *owner_->tls_context_),
+      remote_ip_(std::move(remote_ip)),
       timer_(stream_.get_executor()),
       limiter_(
           owner_->config_.movement_rate_capacity,
@@ -515,12 +577,17 @@ void NetworkService::Impl::Connection::read_credential() {
                     self->owner_->stop();
                     return;
                 }
-                if (validation.error != SessionError::none ||
-                    !self->owner_->simulation_.player(validation.player_id)) {
+                const auto player =
+                    self->owner_->simulation_.player(validation.player_id);
+                if (validation.error != SessionError::none || !player) {
                     self->close();
                     return;
                 }
                 self->player_id_ = validation.player_id;
+                self->movement_detector_.emplace(
+                    self->owner_->config_.movement_anomaly,
+                    player->position,
+                    SteadyClock::now());
                 self->authenticated_ = true;
                 self->owner_->register_player(
                     self, validation.player_id, {});
@@ -550,23 +617,29 @@ void NetworkService::Impl::Connection::read_header() {
                     return;
                 }
 
-                const auto result = decode_move_frame(
+                const auto header = decode_protocol_header(
                     std::span<const std::uint8_t>(
                         self->frame_.data(), kProtocolHeaderSize));
-                if (result.error != ProtocolError::incomplete_frame) {
+                if (header.error != ProtocolError::none ||
+                    (header.message_type == kHelloMessageType &&
+                     self->hello_received_) ||
+                    (header.message_type == kMoveMessageType &&
+                     !self->hello_received_)) {
                     self->cancel_timeout();
                     self->close();
                     return;
                 }
+                self->current_header_ = header;
                 self->read_payload();
             }));
 }
 
 void NetworkService::Impl::Connection::read_payload() {
     const auto self = shared_from_this();
+    const std::size_t payload_size = current_header_.payload_size;
     asio::async_read(
         stream_,
-        asio::buffer(frame_.data() + kProtocolHeaderSize, kMovePayloadSize),
+        asio::buffer(frame_.data() + kProtocolHeaderSize, payload_size),
         asio::bind_executor(owner_->strand_,
             [self](const asio::error_code& error, std::size_t) {
                 self->cancel_timeout();
@@ -577,6 +650,20 @@ void NetworkService::Impl::Connection::read_payload() {
                     } else {
                         self->close();
                     }
+                    return;
+                }
+
+                const std::size_t frame_size =
+                    kProtocolHeaderSize + self->current_header_.payload_size;
+                const std::span<const std::uint8_t> bytes(
+                    self->frame_.data(), frame_size);
+                if (self->current_header_.message_type == kHelloMessageType) {
+                    if (decode_hello_frame(bytes).error != ProtocolError::none) {
+                        self->close();
+                        return;
+                    }
+                    self->hello_received_ = true;
+                    self->read_header();
                     return;
                 }
 
@@ -616,7 +703,18 @@ void NetworkService::Impl::Connection::read_payload() {
                     }
                     return;
                 }
-                if (!self->limiter_.consume(SteadyClock::now())) {
+                const auto now = SteadyClock::now();
+                if (!self->owner_->ip_rate_limiter_.consume(
+                        self->remote_ip_, now)) {
+                    const auto player_id = self->player_id_;
+                    self->close();
+                    if (player_id) {
+                        self->owner_->report_rule_signal(
+                            *player_id, RuleSignal::ip_rate_exceeded);
+                    }
+                    return;
+                }
+                if (!self->limiter_.consume(now)) {
                     const auto player_id = self->player_id_;
                     self->close();
                     if (player_id) {
@@ -626,9 +724,39 @@ void NetworkService::Impl::Connection::read_payload() {
                     return;
                 }
 
-                self->owner_->update_movement(
-                    *self->player_id_,
-                    Vec2{decoded.frame.x, decoded.frame.y});
+                if (!self->movement_detector_) {
+                    const auto player_id = self->player_id_;
+                    self->close();
+                    if (player_id) {
+                        self->owner_->config_.on_error(service_error());
+                    }
+                    return;
+                }
+                const MovementAnomaly anomaly =
+                    self->movement_detector_->observe(decoded.frame, SteadyClock::now());
+                if (anomaly != MovementAnomaly::none) {
+                    const auto player_id = self->player_id_;
+                    self->close();
+                    const auto signal = movement_rule_signal(anomaly);
+                    if (signal && player_id) {
+                        self->owner_->report_rule_signal(*player_id, *signal);
+                    } else {
+                        self->owner_->config_.on_error(service_error());
+                    }
+                    return;
+                }
+
+                if (!self->owner_->enqueue_movement(
+                        *self->player_id_,
+                        Vec2{decoded.frame.x, decoded.frame.y})) {
+                    const auto player_id = self->player_id_;
+                    self->close();
+                    if (player_id) {
+                        self->owner_->report_rule_signal(
+                            *player_id, RuleSignal::movement_intent_queue_full);
+                    }
+                    return;
+                }
                 self->read_header();
             }));
 }

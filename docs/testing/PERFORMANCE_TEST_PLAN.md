@@ -8,10 +8,11 @@ the query baseline. The [report](../operations/spatial-benchmarks.md) records
 compiler and hardware details plus entity counts and query widths. It includes
 five-run medians.
 
-The measurements cover one development machine. They do not establish service
-capacity or production performance. Tail latency and memory use remain
-unmeasured. So do simulation tick time and network throughput plus connection
-churn and concurrent load.
+The query graph renders 20 raw repetitions with p50/p95/p99 for eight
+10,000-entity query cases. These measurements cover one development machine.
+They do not establish service capacity or production performance. Server
+latency and memory use remain unmeasured. So do simulation tick time and
+network throughput plus connection churn and concurrent load.
 
 ## Next measurements
 

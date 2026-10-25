@@ -1,6 +1,8 @@
 add_library(aegisguard_simulation
     src/network_service.cpp
     src/movement_statistics.cpp
+    src/movement_anomaly.cpp
+    src/ip_rate_limiter.cpp
     src/protocol.cpp
     src/replay_session.cpp
     src/rule_detector.cpp

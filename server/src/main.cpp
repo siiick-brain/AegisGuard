@@ -1,4 +1,5 @@
 #include "aegisguard/network_service.hpp"
+#include "aegisguard/json_log.hpp"
 #include "aegisguard/server_config.hpp"
 
 #include <asio.hpp>
@@ -174,6 +175,7 @@ private:
     bool closed_{};
 
     void handle_request() {
+        aegisguard::write_json_log("info", "http_request_received");
         std::istream input(&request_);
         std::string method;
         std::string path;
@@ -205,6 +207,7 @@ private:
 
     void respond(std::string_view status, std::string_view content_type,
                  std::string_view body) {
+        aegisguard::write_json_log("info", "http_response", status);
         response_ = "HTTP/1.1 " + std::string(status) + "\r\n" +
             "Content-Type: " + std::string(content_type) + "\r\n" +
             "Content-Length: " + std::to_string(body.size()) + "\r\n" +
@@ -344,13 +347,21 @@ int main(int argc, char** argv) {
         network_config.frame_timeout = config.frame_timeout;
         network_config.movement_rate_capacity = config.movement_rate_capacity;
         network_config.movement_rate_per_second = config.movement_rate_per_second;
+        network_config.ip_rate_capacity = config.ip_rate_capacity;
+        network_config.ip_rate_per_second = config.ip_rate_per_second;
+        network_config.maximum_tracked_ip_rates =
+            config.maximum_tracked_ip_rates;
+        network_config.maximum_queued_intents_per_player =
+            config.maximum_queued_intents_per_player;
+        network_config.movement_anomaly.maximum_speed = config.simulation.max_speed;
         network_config.on_error = [](std::error_code error) {
-            std::cerr << "network service error: " << error.message() << '\n';
+            aegisguard::write_json_log(
+                "error", "network_service_error", error.message());
         };
         network_config.on_detection = [](const aegisguard::RuleFinding& finding) {
-            std::clog << "detection signal="
-                      << aegisguard::rule_signal_description(finding.signal)
-                      << " player_id=" << finding.player_id << '\n';
+            aegisguard::write_json_log(
+                "warning", "rule_detection",
+                aegisguard::rule_signal_description(finding.signal));
         };
 
         aegisguard::NetworkService game_service(
@@ -370,13 +381,12 @@ int main(int argc, char** argv) {
 
         game_service.start();
         admin_service.start();
-        std::cout << "AegisGuard listening on " << config.bind_address << ':'
-                  << config.port << " with admin HTTPS on "
-                  << config.bind_address << ':' << config.admin_port << '\n';
+        aegisguard::write_json_log("info", "server_started", "listeners ready");
         io->run();
+        aegisguard::write_json_log("info", "server_stopped", "shutdown complete");
         return 0;
     } catch (const std::exception& error) {
-        std::cerr << "aegisguard_server: " << error.what() << '\n';
+        aegisguard::write_json_log("error", "server_startup_failed", error.what());
         return 1;
     }
 }

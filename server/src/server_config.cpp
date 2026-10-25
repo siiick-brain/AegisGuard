@@ -1,5 +1,7 @@
 #include "aegisguard/server_config.hpp"
 
+#include "aegisguard/intent_queue.hpp"
+#include "aegisguard/ip_rate_limiter.hpp"
 #include "aegisguard/simulation.hpp"
 
 #include <charconv>
@@ -370,6 +372,18 @@ ServerConfig parse_server_config(std::string_view json) {
         take_number(fields, "movement_rate_capacity", config.movement_rate_capacity);
     config.movement_rate_per_second = take_number(
         fields, "movement_rate_per_second", config.movement_rate_per_second);
+    config.ip_rate_capacity =
+        take_number(fields, "ip_rate_capacity", config.ip_rate_capacity);
+    config.ip_rate_per_second =
+        take_number(fields, "ip_rate_per_second", config.ip_rate_per_second);
+    config.maximum_tracked_ip_rates = bounded_size(
+        take_unsigned(fields, "maximum_tracked_ip_rates",
+                      config.maximum_tracked_ip_rates),
+        "maximum_tracked_ip_rates");
+    config.maximum_queued_intents_per_player = bounded_size(
+        take_unsigned(fields, "maximum_queued_intents_per_player",
+                      config.maximum_queued_intents_per_player),
+        "maximum_queued_intents_per_player");
     config.maximum_sessions = bounded_size(
         take_unsigned(fields, "maximum_sessions", config.maximum_sessions),
         "maximum_sessions");
@@ -391,7 +405,16 @@ ServerConfig parse_server_config(std::string_view json) {
         !std::isfinite(config.movement_rate_capacity) ||
         config.movement_rate_capacity < 1.0 ||
         !std::isfinite(config.movement_rate_per_second) ||
-        config.movement_rate_per_second <= 0.0) {
+        config.movement_rate_per_second <= 0.0 ||
+        !std::isfinite(config.ip_rate_capacity) ||
+        config.ip_rate_capacity < 1.0 ||
+        !std::isfinite(config.ip_rate_per_second) ||
+        config.ip_rate_per_second <= 0.0 ||
+        config.maximum_tracked_ip_rates == 0 ||
+        config.maximum_tracked_ip_rates > kMaximumTrackedIpAddresses ||
+        config.maximum_queued_intents_per_player == 0 ||
+        config.maximum_queued_intents_per_player >
+            kMaximumQueuedIntentsPerPlayer) {
         throw std::invalid_argument("server config values are outside supported limits");
     }
     Simulation simulation(config.simulation);

@@ -11,9 +11,15 @@
 
 namespace aegisguard {
 
+inline constexpr std::uint8_t kProtocolVersion = 2;
 inline constexpr std::size_t kProtocolHeaderSize = 14;
-inline constexpr std::size_t kMovePayloadSize = 4;
+inline constexpr std::size_t kHelloPayloadSize = 2;
+inline constexpr std::size_t kMovePayloadSize = 14;
 inline constexpr std::size_t kMaximumFrameSize = kProtocolHeaderSize + kMovePayloadSize;
+inline constexpr std::size_t kHelloFrameSize =
+    kProtocolHeaderSize + kHelloPayloadSize;
+inline constexpr std::uint8_t kHelloMessageType = 0;
+inline constexpr std::uint8_t kMoveMessageType = 1;
 
 enum class ProtocolError {
     none,
@@ -34,6 +40,25 @@ struct MoveFrame {
     std::uint64_t sequence{};
     double x{};
     double y{};
+    double aim_angle_radians{};
+    double reported_position_x{};
+    double reported_position_y{};
+};
+
+struct ProtocolHeader {
+    ProtocolError error{ProtocolError::none};
+    std::uint8_t message_type{};
+    std::uint16_t payload_size{};
+    std::uint64_t sequence{};
+};
+
+struct HelloFrame {
+    std::uint16_t protocol_version{};
+};
+
+struct HelloDecodeResult {
+    ProtocolError error{ProtocolError::none};
+    HelloFrame frame{};
 };
 
 struct DecodeResult {
@@ -42,6 +67,10 @@ struct DecodeResult {
 };
 
 [[nodiscard]] DecodeResult decode_move_frame(std::span<const std::uint8_t> bytes) noexcept;
+[[nodiscard]] ProtocolHeader decode_protocol_header(
+    std::span<const std::uint8_t> bytes) noexcept;
+[[nodiscard]] HelloDecodeResult decode_hello_frame(
+    std::span<const std::uint8_t> bytes) noexcept;
 
 template <typename SyncReadStream>
 [[nodiscard]] DecodeResult read_move_frame(SyncReadStream& stream) {

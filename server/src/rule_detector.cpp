@@ -30,6 +30,16 @@ std::string_view rule_signal_description(RuleSignal signal) noexcept {
             return "A movement frame reused or preceded an accepted sequence.";
         case RuleSignal::movement_rate_exceeded:
             return "Movement frames exceeded the configured token-bucket rate.";
+        case RuleSignal::speed_exceeded:
+            return "Reported movement exceeded the speed bound with latency tolerance.";
+        case RuleSignal::teleport_distance_exceeded:
+            return "Reported position exceeded the configured teleport distance.";
+        case RuleSignal::aim_snap_exceeded:
+            return "Aim angle changed faster than the configured angular rate.";
+        case RuleSignal::ip_rate_exceeded:
+            return "Movement frames exceeded the shared rate limit for the source IP.";
+        case RuleSignal::movement_intent_queue_full:
+            return "The bounded per-player movement intent queue is full.";
     }
     return "Unknown rule signal.";
 }
