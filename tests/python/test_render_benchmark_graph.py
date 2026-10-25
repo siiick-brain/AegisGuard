@@ -1,14 +1,23 @@
+import json
+import subprocess
+import sys
+import tempfile
 import unittest
+from pathlib import Path
 
 from tools.evaluation.render_benchmark_graph import collect_series, percentile, render_svg
 
 
-def make_report():
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+GRAPH_SCRIPT = REPOSITORY_ROOT / "tools" / "evaluation" / "render_benchmark_graph.py"
+
+
+def make_report(repetitions: int = 20):
     benchmarks = []
     for algorithm in ("BM_QuadtreeRangeQuery", "BM_BruteForceRangeQuery"):
         for distribution in (0, 1):
             for width in (11, 101):
-                for repetition in range(20):
+                for repetition in range(repetitions):
                     benchmarks.append({
                         "name": (
                             f"{algorithm}/entities:10000/distribution:{distribution}"
@@ -51,11 +60,40 @@ class BenchmarkGraphTest(unittest.TestCase):
         self.assertIn("p95", svg)
         self.assertIn("p99", svg)
         self.assertIn("Each gray dot is one measured repetition", svg)
+        self.assertIn("n 20", svg)
         self.assertIn("Clustered · width 101", svg)
         self.assertEqual(svg.count('class="raw"/>'), 160)
         self.assertEqual(svg.count('class="p50"/>'), 8)
         self.assertEqual(svg.count('class="p95"/>'), 8)
         self.assertEqual(svg.count('class="p99"/>'), 8)
+
+    def test_cli_labels_the_actual_repetition_count(self):
+        for repetitions in (7, 25):
+            with self.subTest(repetitions=repetitions):
+                with tempfile.TemporaryDirectory() as temporary_directory:
+                    input_path = Path(temporary_directory) / "benchmark.json"
+                    output_path = Path(temporary_directory) / "graph.svg"
+                    input_path.write_text(
+                        json.dumps(make_report(repetitions)), encoding="utf-8"
+                    )
+
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            str(GRAPH_SCRIPT),
+                            str(input_path),
+                            str(output_path),
+                        ],
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                    )
+
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn(f"n={repetitions}", result.stdout)
+                    self.assertIn(f"n {repetitions}", output_path.read_text(
+                        encoding="utf-8"
+                    ))
 
     def test_incomplete_raw_data_is_rejected(self):
         with self.assertRaisesRegex(ValueError, "expected all eight"):

@@ -101,8 +101,6 @@ def collect_series(report: Any) -> list[dict[str, Any]]:
         indices = sorted(indexed_values)
         if indices != list(range(len(indices))):
             raise ValueError(f"repetition indices must be contiguous from zero for {case}")
-        if len(indices) < 20:
-            raise ValueError(f"expected at least 20 raw repetitions for {case}")
         values = [indexed_values[index] for index in indices]
         result.append({
             "algorithm": case[0],
@@ -139,14 +137,13 @@ def render_svg(series: list[dict[str, Any]]) -> str:
     top, row_step = 125.0, 52.0
     bottom = top + row_step * (len(series) - 1)
     ticks = (0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000)
-    colors = {"p50": "#007f86", "p95": "#d97706", "p99": "#c62828"}
     shapes = {"p50": "circle", "p95": "triangle", "p99": "square"}
     output = [
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}" role="img" aria-labelledby="title description">',
         "<title id=\"title\">Raw spatial query repetitions and latency percentiles</title>",
-        "<desc id=\"description\">Twenty raw repetitions for each 10,000-entity query case, "
-        "with p50, p95, and p99 markers. The clustered Quadtree query at width 101 is the "
+        "<desc id=\"description\">Raw repetition counts are shown for each 10,000-entity "
+        "query case, with p50, p95 and p99 markers. The clustered Quadtree query at width 101 is the "
         "slowest case by a wide margin.</desc>",
         "<style>text{font-family:Arial,sans-serif;fill:#202124}.muted{fill:#5f6368}"
         ".grid{stroke:#dadce0;stroke-width:1}.raw{fill:#9aa0a6;opacity:.68}"
@@ -156,7 +153,7 @@ def render_svg(series: list[dict[str, Any]]) -> str:
         ".separator{stroke:#e8eaed;stroke-width:1}</style>",
         "<rect width=\"100%\" height=\"100%\" fill=\"#fff\"/>",
         '<text x="42" y="42" font-size="24" font-weight="700">Spatial query latency: raw repetitions and percentiles</text>',
-        '<text x="42" y="70" class="muted" font-size="14">10,000 entities · 20 repetitions per case · values in microseconds · logarithmic x-axis</text>',
+        '<text x="42" y="70" class="muted" font-size="14">10,000 entities · repetition count shown per case · values in microseconds · logarithmic x-axis</text>',
     ]
 
     for tick in ticks:
@@ -168,7 +165,7 @@ def render_svg(series: list[dict[str, Any]]) -> str:
         y = top + index * row_step
         if row["width"] == 101 and row["distribution"] == "Clustered":
             output.append(f'<rect x="28" y="{y - 21:.2f}" width="1538" height="42" rx="5" fill="#fff3e0"/>')
-        output.append(f'<text x="42" y="{y + 5:.2f}" font-size="14">{html.escape(row["algorithm"])} · {row["distribution"]} · width {row["width"]}</text>')
+        output.append(f'<text x="42" y="{y + 5:.2f}" font-size="14">{html.escape(row["algorithm"])} · {row["distribution"]} · width {row["width"]} · n {len(row["values"])}</text>')
         for repetition, value in enumerate(row["values"]):
             jitter = (repetition % 5 - 2) * 2.0
             x = _x_position(value, left, right)
@@ -200,7 +197,7 @@ def render_svg(series: list[dict[str, Any]]) -> str:
         output.append(f'<text x="{x + 12}" y="87" font-size="12">{percentile_name}</text>')
     output.extend([
         f'<text x="{(left + right) / 2:.2f}" y="{bottom + 68:.2f}" text-anchor="middle" font-size="13">Time per query (µs, log scale)</text>',
-        '<circle cx="42" cy="635" r="3" class="raw-legend"/><text x="53" y="639" class="muted" font-size="12">Each gray dot is one measured repetition. Percentiles use linear interpolation across the 20 values; they are not production tail-latency guarantees.</text>',
+        '<circle cx="42" cy="635" r="3" class="raw-legend"/><text x="53" y="639" class="muted" font-size="12">Each gray dot is one measured repetition. Percentiles use linear interpolation across each case\'s values; they are not production tail-latency guarantees.</text>',
         "</svg>",
     ])
     return "\n".join(output) + "\n"
@@ -221,13 +218,16 @@ def main() -> None:
         args.output.write_text(svg, encoding="utf-8")
     except (OSError, json.JSONDecodeError, ValueError) as error:
         parser.error(str(error))
-    print(f"Rendered {len(series)} cases with {len(series[0]['values'])} repetitions each to {args.output}")
     for row in series:
         values = " ".join(
             f"{name}={row['percentiles'][name]:.2f}us"
             for name in ("p50", "p95", "p99")
         )
-        print(f"{row['algorithm']} {row['distribution']} width={row['width']}: {values}")
+        print(
+            f"{row['algorithm']} {row['distribution']} width={row['width']} "
+            f"n={len(row['values'])}: {values}"
+        )
+    print(f"Rendered {len(series)} cases to {args.output}")
 
 
 if __name__ == "__main__":

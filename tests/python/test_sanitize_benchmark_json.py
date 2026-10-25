@@ -5,12 +5,22 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from tools.evaluation.sanitize_benchmark_json import sanitize_report
+
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SANITIZER = REPOSITORY_ROOT / "tools" / "evaluation" / "sanitize_benchmark_json.py"
 
 
 class SanitizeBenchmarkJsonTests(unittest.TestCase):
+    def test_rejects_non_object_input(self) -> None:
+        with self.assertRaisesRegex(ValueError, "Google Benchmark JSON report"):
+            sanitize_report([])
+
+    def test_rejects_non_list_benchmark_results(self) -> None:
+        with self.assertRaisesRegex(ValueError, "benchmark results"):
+            sanitize_report({"context": {}, "benchmarks": None})
+
     def test_removes_host_name_and_preserves_benchmark_data(self) -> None:
         report = {
             "context": {

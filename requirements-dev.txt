@@ -1,0 +1,5 @@
+gcovr
+hypothesis
+mypy
+pytest
+ruff
