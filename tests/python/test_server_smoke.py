@@ -9,6 +9,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
@@ -20,7 +21,9 @@ def available_port() -> int:
         return int(probe.getsockname()[1])
 
 
-def make_test_certificates(directory: Path) -> tuple[Path, Path, Path]:
+def make_test_certificates(
+    directory: Path,
+) -> tuple[Path, Path, Path, Path, Path]:
     ca_key = directory / "ca.key"
     ca_cert = directory / "ca.pem"
     server_key = directory / "server.key"
@@ -47,7 +50,8 @@ def make_test_certificates(directory: Path) -> tuple[Path, Path, Path]:
             "openssl", "req", "-newkey", "rsa:2048", "-nodes",
             "-keyout", str(server_key), "-out", str(server_request),
             "-subj", "/CN=localhost",
-            "-addext", "subjectAltName=DNS:localhost,IP:127.0.0.1",
+            "-addext",
+            "subjectAltName=DNS:localhost,DNS:status.test,IP:127.0.0.1",
             "-addext", "extendedKeyUsage=serverAuth",
         ],
         check=True,
@@ -88,6 +92,23 @@ def make_test_certificates(directory: Path) -> tuple[Path, Path, Path]:
         stderr=subprocess.DEVNULL,
     )
     return ca_cert, server_cert, server_key, admin_cert, admin_key
+
+
+def make_untrusted_client_certificate(directory: Path) -> tuple[Path, Path]:
+    client_key = directory / "untrusted-admin.key"
+    client_certificate = directory / "untrusted-admin.pem"
+    subprocess.run(
+        [
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", str(client_key), "-out", str(client_certificate),
+            "-days", "1", "-subj", "/CN=Untrusted AegisGuard Admin",
+            "-addext", "extendedKeyUsage=clientAuth",
+        ],
+        check=True,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+    return client_certificate, client_key
 
 
 def https_get(port: int, ca_cert: Path, path: str,
@@ -161,20 +182,78 @@ if ($ruleSid -ne $userSid -or
 
 
 class ServerSmokeTests(unittest.TestCase):
+    def build_directory(self) -> Path:
+        configured_build = os.environ.get("AEGISGUARD_BUILD_DIR")
+        if not configured_build:
+            self.fail(
+                "AEGISGUARD_BUILD_DIR must be set to the active CMake build directory"
+            )
+        build_directory = Path(configured_build)
+        if not build_directory.is_dir():
+            self.fail(
+                f"AEGISGUARD_BUILD_DIR does not exist: {build_directory}"
+            )
+        return build_directory
+
+    def require_binary(self, relative_path: Path) -> Path:
+        binary = self.build_directory() / relative_path
+        if not binary.is_file():
+            self.fail(f"required test binary is missing: {binary}")
+        return binary
+
+    def assert_server_binary_is_current(self, server: Path) -> None:
+        source_directory = REPOSITORY_ROOT / "server" / "src"
+        source_files = [path for path in source_directory.rglob("*") if path.is_file()]
+        if not source_files:
+            self.fail(f"server source directory contains no files: {source_directory}")
+        newest_source = max(source_files, key=lambda path: path.stat().st_mtime_ns)
+        if server.stat().st_mtime_ns < newest_source.stat().st_mtime_ns:
+            self.fail(
+                "server binary is older than server source: "
+                f"{server} is older than {newest_source}; rebuild the active "
+                "AEGISGUARD_BUILD_DIR"
+            )
+
+    def test_build_directory_is_required(self) -> None:
+        with patch.dict(os.environ):
+            os.environ.pop("AEGISGUARD_BUILD_DIR", None)
+            with self.assertRaisesRegex(
+                AssertionError, "AEGISGUARD_BUILD_DIR must be set"
+            ):
+                self.build_directory()
+
+    def test_missing_binary_fails_instead_of_skipping(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            with patch.dict(os.environ, {"AEGISGUARD_BUILD_DIR": directory}):
+                with self.assertRaisesRegex(
+                    AssertionError, "required test binary is missing"
+                ):
+                    self.require_binary(Path("missing-server"))
+
+    def test_rejects_server_binary_older_than_source(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            binary = Path(directory) / "server"
+            binary.write_bytes(b"test")
+            os.utime(binary, (1, 1))
+
+            with self.assertRaisesRegex(
+                AssertionError, "server binary is older than server source"
+            ):
+                self.assert_server_binary_is_current(binary)
+
     def test_valid_token_admin_mtls_and_signal_shutdown(self) -> None:
-        server_candidates = [
-            REPOSITORY_ROOT / "build-audit-fresh" / "server" /
-            "aegisguard_server.exe",
-            REPOSITORY_ROOT / "build" / "server" / "aegisguard_server.exe",
-        ]
-        server = next((path for path in server_candidates if path.exists()), None)
-        if server is None:
-            self.skipTest("build aegisguard_server before running smoke tests")
+        binary_name = (
+            "aegisguard_server.exe" if os.name == "nt" else "aegisguard_server"
+        )
+        server = self.require_binary(Path("server") / binary_name)
+        self.assert_server_binary_is_current(server)
 
         with tempfile.TemporaryDirectory(prefix="aegisguard-smoke-") as temp:
             directory = Path(temp)
             ca_cert, server_cert, server_key, admin_cert, admin_key = \
                 make_test_certificates(directory)
+            untrusted_admin_cert, untrusted_admin_key = \
+                make_untrusted_client_certificate(directory)
             token_path = directory / "player.token"
             config_path = directory / "server.json"
             game_port = available_port()
@@ -226,11 +305,56 @@ class ServerSmokeTests(unittest.TestCase):
                 self.assertEqual(health_status, 200, f"health failed: {last_error}")
                 assert_private_token_permissions(self, token_path)
                 print("Demo token file permissions: owner only")
+                healthcheck_command = [
+                    str(server), "--config", str(config_path), "--healthcheck"
+                ]
+                hostname_environment = os.environ.copy()
+                hostname_environment["AEGISGUARD_STATUS_HOSTNAME"] = "status.test"
+                hostname_check = subprocess.run(
+                    healthcheck_command,
+                    capture_output=True,
+                    text=True,
+                    env=hostname_environment,
+                    timeout=5,
+                )
+                self.assertEqual(
+                    hostname_check.returncode,
+                    0,
+                    hostname_check.stdout + hostname_check.stderr,
+                )
+                hostname_environment["AEGISGUARD_STATUS_HOSTNAME"] = "wrong.test"
+                mismatched_hostname_check = subprocess.run(
+                    healthcheck_command,
+                    capture_output=True,
+                    text=True,
+                    env=hostname_environment,
+                    timeout=5,
+                )
+                self.assertNotEqual(mismatched_hostname_check.returncode, 0)
+                print(
+                    "status hostname check: status.test accepted; "
+                    "certificate mismatch rejected"
+                )
                 self.assertEqual(https_get(admin_port, ca_cert, "/status")[0], 401)
                 self.assertEqual(
                     https_get(admin_port, ca_cert, "/status", admin_cert, admin_key)[0],
                     200,
                 )
+                try:
+                    untrusted_status = https_get(
+                        admin_port, ca_cert, "/status",
+                        untrusted_admin_cert, untrusted_admin_key
+                    )[0]
+                except (OSError, ssl.SSLError):
+                    untrusted_status = None
+                self.assertIn(untrusted_status, (None, 401))
+                print("mTLS certificate check: trusted=200 untrusted=rejected")
+                self.assertEqual(https_get(admin_port, ca_cert, "/metrics")[0], 401)
+                metrics_status, metrics_body = https_get(
+                    admin_port, ca_cert, "/metrics", admin_cert, admin_key
+                )
+                self.assertEqual(metrics_status, 200)
+                self.assertEqual(metrics_body, b"aegisguard_up 1\n")
 
                 token = bytes.fromhex(token_path.read_text(encoding="ascii").strip())
                 self.assertEqual(len(token), 32)
@@ -293,14 +417,12 @@ class ServerSmokeTests(unittest.TestCase):
                     process.wait(timeout=5)
 
     def test_json_logs_parse_and_exclude_secrets(self) -> None:
-        probe_candidates = [
-            REPOSITORY_ROOT / "build-audit-fresh" / "tests" /
-            "aegisguard_json_log_probe.exe",
-            REPOSITORY_ROOT / "build" / "tests" / "aegisguard_json_log_probe.exe",
-        ]
-        probe = next((path for path in probe_candidates if path.exists()), None)
-        if probe is None:
-            self.skipTest("build aegisguard_json_log_probe before running tests")
+        probe_name = (
+            "aegisguard_json_log_probe.exe"
+            if os.name == "nt"
+            else "aegisguard_json_log_probe"
+        )
+        probe = self.require_binary(Path("tests") / probe_name)
 
         result = subprocess.run(
             [str(probe)], check=True, capture_output=True, text=True, timeout=10

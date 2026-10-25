@@ -76,3 +76,14 @@ endif()
 include(GoogleTest)
 gtest_discover_tests(aegisguard_simulation_tests)
 gtest_discover_tests(aegisguard_property_tests)
+
+find_package(Python3 REQUIRED COMPONENTS Interpreter)
+add_test(
+    NAME aegisguard_python_tests
+    COMMAND ${Python3_EXECUTABLE} -m pytest -q
+        ${PROJECT_SOURCE_DIR}/tests/python
+)
+set_tests_properties(aegisguard_python_tests PROPERTIES
+    ENVIRONMENT "AEGISGUARD_BUILD_DIR=${CMAKE_BINARY_DIR}"
+    WORKING_DIRECTORY "${PROJECT_SOURCE_DIR}"
+)

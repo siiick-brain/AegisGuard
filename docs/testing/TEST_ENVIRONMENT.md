@@ -8,6 +8,11 @@ CMake and Ninja are installed through WinGet, while GCC and OpenSSL are
 provided by MSYS2. This audit used absolute CMake and CTest paths because bare
 command resolution varied between VS Code terminal sessions. The README
 commands require CMake and CTest on the terminal's `PATH` or absolute paths.
+The CTest suite includes the Python tests and sets `AEGISGUARD_BUILD_DIR` to
+the active build directory. For a direct pytest run, set that variable to the
+same build directory. The server smoke test fails if the variable or required
+binary is missing. It also rejects a server binary older than any file in
+`server/src`.
 
 Clang/libFuzzer, Docker and Trivy are unavailable locally. Gitleaks,
 Cosign and ZAP are not installed either. Prometheus and the
