@@ -8,15 +8,16 @@
   frame deadline.
 - The configured connection cap rejects additional accepted sockets.
 - The token bucket rejects movement traffic above its configured rate.
-- Invalid authentication, malformed frames and replayed sequences close the
-  connection without changing player state.
+- Invalid authentication and malformed frames close the connection without
+  changing player state. Replayed sequences do too.
 - Service shutdown cancels accept and tick operations and bounds TLS shutdown.
 
-These are focused loopback tests, not a load or chaos assessment.
+These are focused loopback tests. They are not a load or chaos assessment.
 
 ## Deferred cases
 
-There is no database, cache, message broker, telemetry exporter, model service,
-container deployment or persistent evidence store. Fault tests for those
-components, disk exhaustion, restart recovery, backup/restore and long-duration
-soak behavior belong to later milestones.
+There is no database or cache. There is no message broker or telemetry
+exporter. A model service and container deployment are also absent. There is no
+persistent evidence store. Fault tests for those components belong to later
+milestones. So do disk exhaustion and restart recovery plus backup/restore and
+long-duration soak behavior.

@@ -11,11 +11,11 @@ a generated self-signed certificate with verification disabled only in tests.
 - TLS 1.3 is required; a TLS 1.2-only client is rejected.
 - Unknown and revoked credentials are rejected.
 - Credentials are checked again for each movement frame.
-- Invalid magic, duplicate sequences and excessive movement rates close the
-  connection.
+- Invalid magic and duplicate sequences close the connection. Excessive
+  movement rates do too.
 - Incomplete authentication and frames are bounded by deadlines.
 - Connection count and latest movement state have explicit bounds.
-- Shutdown stops accept and tick work, then attempts bounded TLS shutdown for
+- Shutdown stops accept and tick work. It then attempts bounded TLS shutdown for
   authenticated clients.
 
 These checks are custom tests for the game protocol. They do not establish

@@ -1,10 +1,10 @@
 # Property and differential testing
 
 The Quadtree test uses a fixed seed (`0xA3615`) and performs 600 generated
-insert, update, remove and query steps. After each step, a simple `std::map`
+insert/update/remove/query steps. After each step a simple `std::map`
 scan acts as an independent oracle for the query result and entity count.
-Boundary, duplicate-position, degenerate-range and invalid-input cases have
-separate tests.
+Boundary and duplicate-position cases have separate tests. Degenerate-range
+and invalid-input cases have separate tests too.
 
 Protocol tests currently use specification-built fixtures and negative cases.
 The libFuzzer harness supplements them when a supported Clang environment is

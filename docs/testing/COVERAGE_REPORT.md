@@ -1,8 +1,8 @@
 # Coverage report
 
 No line or branch coverage report has been generated yet. GCC's `gcov` is
-available in the current MSYS2 UCRT64 toolchain; `gcovr`, Clang coverage tools
-and ThreadSanitizer are unavailable.
+available in the current MSYS2 UCRT64 toolchain. `gcovr` and Clang coverage
+tools are unavailable. ThreadSanitizer is unavailable too.
 
 To collect GCC coverage in a separate build directory:
 

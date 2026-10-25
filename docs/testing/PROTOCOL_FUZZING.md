@@ -35,6 +35,7 @@ the local test environment.
 ## Result status
 
 The target is configured in CMake. This Windows environment has GCC 15.2.0 but
-no Clang installation, so compilation and execution are deferred. No fuzz
+no Clang installation. Compilation and execution are deferred. No fuzz
 coverage or crash-free claim is made. The current harness covers only movement
-frame decoding; it does not fuzz TLS, credentials, configuration or persistence.
+frame decoding. It does not fuzz TLS or credentials. Configuration and
+persistence are not fuzzed either.
