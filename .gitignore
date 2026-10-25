@@ -17,3 +17,15 @@ htmlcov/
 *.log
 /artifacts/
 /data/local/
+*.pem
+*.key
+*.crt
+*.cer
+*.pfx
+*.p12
+*.csr
+*.srl
+tokens*
+/private/
+/.agents/
+/skills/
