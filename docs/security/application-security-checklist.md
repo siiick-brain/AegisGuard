@@ -1,7 +1,7 @@
 # Application security checklist
 
 This checklist adapts verification concerns from OWASP ASVS 5.0.0 to the
-implemented game service. It is a development aid, not an ASVS assessment or
+implemented game service. It is a development aid. It is not an ASVS assessment or
 claim of compliance. ASVS is written for web applications and web services;
 HTTP-specific items remain pending until an administrative API exists.
 

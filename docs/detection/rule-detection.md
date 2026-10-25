@@ -17,36 +17,41 @@ existing protocol controls.
 
 ## Findings and policy
 
-Each finding has schema version 1, a player ID, the signal and its plain-language
-reason, the simulation tick, and the count for that signal within the configured
-tick window. The default window is 120 ticks. Separate signals have separate
-counters. The detector retains history for up to 1,024 players and stores at
+Each finding has schema version 1 and a player ID. It records the signal and
+its plain-language reason plus the simulation tick and count for that signal
+within the configured tick window. The default window is 120 ticks. Separate signals
+have separate counters. The detector retains history for up to 1024 players.
+It stores at
 most the disconnect threshold of event ticks per signal. The count saturates at
-that threshold. The configurable player cap cannot exceed 1,024, and the
+that threshold. The configurable player cap cannot exceed 1024. The
 disconnect threshold cannot exceed 128. A finding marks
 `other_player_history_evicted` when it replaces an older player's history to
 stay within the player cap.
 
-The default recommendations progress at 2, 4 and 6 observations in the window:
-review, throttle and disconnect. The first observation recommends observation.
-The detector always reports `applied_action=observe`; it does not ban, throttle
-or disconnect accounts. Protocol-level rejection and connection closure remain
-separate controls and continue to apply. `RuleDetectorConfig` allows tests or a
-caller to set the window, thresholds and history cap.
+The default recommendations progress at two observations then at four and
+finally at six within the window.
+They recommend review then throttle and finally disconnect. The first
+observation recommends observation.
+The detector always reports `applied_action=observe`. It does not ban or
+throttle accounts and does not disconnect them. Protocol-level rejection and
+connection closure remain separate controls and continue to apply.
+`RuleDetectorConfig` allows tests or a caller to set the window and thresholds.
+It also allows setting the history cap.
 
 `NetworkServiceConfig::on_detection` is required and receives findings on the
-service strand. The callback must be quick, non-blocking and non-throwing.
-Persisting evidence, operator review, account-level enforcement and
-callback-failure isolation are not implemented.
+service strand. The callback must be quick and non-blocking. It must not throw.
+Persisting evidence and operator review are not implemented. Account-level
+enforcement and callback-failure isolation are not implemented either.
 
 ## Verification and limits
 
-GoogleTest covers evidence fields, signal separation, per-player counts,
-threshold progression, tick-window expiry, bounded history, invalid input and
-integration with authenticated TLS traffic. Test-mode recommendations are
+GoogleTest covers evidence fields and signal separation. It tests per-player
+counts plus threshold progression and tick-window expiry. It tests bounded
+history and invalid input. Authenticated TLS traffic is covered by integration
+tests. Test-mode recommendations are
 verified to leave applied action at `observe`.
 
-The tests use controlled protocol cases; they are not a labeled gameplay
+The tests use controlled protocol cases. They are not a labeled gameplay
 dataset. No real-player behavior or real-cheat coverage has been measured.
 The separate offline movement baseline and its synthetic test limits are
 documented in [movement statistics](movement-statistics.md).

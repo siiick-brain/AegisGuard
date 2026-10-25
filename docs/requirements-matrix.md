@@ -5,15 +5,15 @@ evidence. A feature is complete only after its acceptance gate passes.
 Milestones 0 through 2 are complete. Milestone 3's intermittent MinGW test
 crash was traced to inconsistent Asio thread-backend definitions and fixed in
 the current worktree; repeated Debug and Release verification passed.
-Milestones 4 through 7 are complete within the protocol, in-memory replay and
-synthetic offline movement-analysis scopes described below. Milestone 8 CI
-checks are configured, but the milestone remains partial: no workflow has run
-on GitHub, and container deployment is deferred.
+Milestones 4 through 7 are complete within the protocol and in-memory replay
+scopes described below. They also cover synthetic offline movement analysis.
+Milestone 8 CI checks are configured but the milestone remains partial. No
+workflow has run on GitHub and container deployment is deferred.
 
 | Spec section | Scope and required evidence | Milestone | Status |
 |---|---|---:|---|
 | 1 | Inspect-first workflow, incremental changes, evidence-based claims, dependency discipline | All | Adopted as project workflow |
-| 2 | Select references and skills only when useful; review licenses before adopting code or dependencies | As needed | Humanizer MIT, GoogleTest BSD 3-Clause, Google Benchmark Apache 2.0, Asio BSL-1.0, and OpenSSL Apache 2.0 licenses reviewed |
+| 2 | Select references only when useful; review licenses before adopting code or dependencies | As needed | GoogleTest BSD 3-Clause, Google Benchmark Apache 2.0, Asio BSL-1.0 and OpenSSL Apache 2.0 licenses reviewed |
 | 3 | Add components only when their milestone begins; keep a maintainable monorepo | 1 to 11 | In progress |
 | 4 | Authoritative C++20 simulation, fixed timestep, testable modules, dynamic Quadtree, staged detector, telemetry, platform security | 1 to 10 | Simulation and Quadtree implemented; later layers planned |
 | 5 | Versioned protocol, bounded parsing and queues, authenticated sessions, replay/rate controls, explicit transport and crypto decisions | 3 | TLS 1.3 listener, session validation, fixed-size parsing, connection cap, deadlines, replay/rate controls and fixed-tick dispatch implemented. MinGW Asio thread-backend definitions were unified to resolve the test teardown crash; 10 full Debug and 10 full Release runs passed. |
@@ -53,10 +53,11 @@ on GitHub, and container deployment is deferred.
 
 - Production certificate provisioning and key rotation; the TLS service uses
   caller-provided credentials and defaults to loopback.
-- Adding any external library, ML model, cloud service, edge integration,
-  Kubernetes, Terraform, dashboard, or persistent event broker.
-- Claims of real-world cheat coverage, model accuracy, production readiness,
-  security certification, or performance gains.
+- Adding an external library or ML model. Cloud service and edge integration
+  are deferred too. Kubernetes and Terraform are also deferred.
+- Adding a dashboard or persistent event broker.
+- Claims of real-world cheat coverage or model accuracy. Production readiness
+  and security certification claims are deferred along with performance gains.
 - A client kernel driver and collection of indefinite raw input telemetry.
 
 Each deferred choice requires evidence and a documented decision in the

@@ -6,10 +6,11 @@
 ## Context
 
 AegisGuard's core is a systems-oriented authoritative simulation with spatial
-queries and untrusted-input boundaries. It needs explicit compiler support,
-repeatable builds, test integration, and a path to CI across platforms. The
-workspace was empty and not version-controlled at inspection time. It currently
-has MSYS2 GCC 15.2.0, but no CMake, Ninja, MSVC, or test runner.
+queries and untrusted-input boundaries. It needs explicit compiler support
+and repeatable builds. It also needs test integration and a path to CI across
+platforms. The workspace was empty and not version-controlled at inspection
+time. It currently has MSYS2 GCC 15.2.0 but no CMake or Ninja. MSVC and a test
+runner are also absent.
 
 ## Decision
 
@@ -18,8 +19,9 @@ has MSYS2 GCC 15.2.0, but no CMake, Ninja, MSVC, or test runner.
 - Keep the initial simulation independent of networking and external services.
 - Record toolchain and build configuration in project files and CI once Milestone
   1 establishes and verifies them.
-- Do not select a networking, cryptography, or ML dependency before its
-  requirements and maintenance/security posture are reviewed.
+- Do not select a networking or cryptography dependency before its
+  requirements and maintenance/security posture are reviewed. Apply the same
+  review to ML dependencies.
 
 ## Rationale
 
@@ -31,9 +33,10 @@ simulation core.
 ## Consequences and validation
 
 - Local C++ builds cannot be validated yet because CMake is absent. This ADR is
-  a strategy, not evidence of a reproducible working build.
-- Milestone 1 installed CMake 4.4.4 and Ninja 1.13.2 for the current user, then
-  verified configure, build, and all 9 GoogleTest cases with MSYS2 GCC 15.2.0.
+  a strategy. It is not evidence of a reproducible working build.
+- Milestone 1 installed CMake 4.4.4 and Ninja 1.13.2 for the current user.
+  Configure and build were verified along with all 9 GoogleTest cases on
+  MSYS2 GCC 15.2.0.
 - CI should later validate at least one supported compiler configuration; a
   second compiler/platform is desirable before claiming portability.
 - The minimum CMake version and supported compiler versions must be revisited if

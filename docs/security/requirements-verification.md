@@ -1,7 +1,7 @@
 # Security requirements and verification
 
-This matrix maps standards to project work. It does not claim certification,
-compliance or maturity.
+This matrix maps standards to project work. It does not claim certification or
+compliance. It does not claim maturity.
 
 | Source | Project use | Current implementation or evidence | Status |
 |---|---|---|---|

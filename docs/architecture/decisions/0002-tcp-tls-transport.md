@@ -6,9 +6,9 @@
 ## Context
 
 The first protocol carries compact movement intent. The project has no measured
-packet-loss, latency or concurrency requirements. Implementing UDP safely
-would require deliberate ordering, replay, congestion and cryptographic
-transport decisions.
+requirements for packet loss or latency. It has no concurrency targets either.
+Implementing UDP safely would require deliberate decisions about ordering and
+replay plus congestion and transport cryptography.
 
 ## Decision
 
@@ -21,9 +21,10 @@ custom UDP reliability layer.
 - TCP simplifies initial delivery and ordering but can delay later messages
   behind a lost segment.
 - TLS adds certificate provisioning and rotation requirements.
-- The listener, sequence guard, token bucket and OpenSSL-backed credential store
-  are connected and covered by local TLS integration tests.
-- Certificate deployment, key rotation, external session issuance and
-  representative load testing remain open.
+- The listener and sequence guard are connected. The token bucket and
+  OpenSSL-backed credential store are also connected. Local TLS integration
+  tests cover these components.
+- Certificate deployment and key rotation remain open. External session
+  issuance and representative load testing remain open too.
 - Revisit transport only after representative gameplay traffic can measure the
   effect of TCP head-of-line blocking.
