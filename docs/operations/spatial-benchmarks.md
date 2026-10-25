@@ -1,25 +1,25 @@
 # Spatial benchmark results
 
-The benchmark executable measures Quadtree insertion, removal, updates, and
-range queries. A brute-force point scan provides a range-query baseline. These
+The benchmark executable measures Quadtree insertion and removal plus updates
+and range queries. A brute-force point scan provides a range-query baseline. These
 results describe synthetic workloads on one development machine.
 
 ## Environment and method
 
-- Windows 11 Pro, 64-bit.
-- Intel Core i5-10310U, 4 cores and 8 logical processors.
-- MSYS2 GCC 15.2.0, CMake 4.4.4, Ninja 1.13.2.
-- Google Benchmark 1.9.4, Release build.
+- Windows 11 Pro with 64-bit architecture.
+- Intel Core i5-10310U with 4 cores and 8 logical processors.
+- MSYS2 GCC 15.2.0 with CMake 4.4.4 and Ninja 1.13.2.
+- Google Benchmark 1.9.4 on a Release build.
 - Five repetitions with a 0.1 second minimum per repetition.
-- Entity counts of 100, 1,000, and 10,000.
+- Entity counts of 100 then 1000 and 10000.
 
 The uniform workload places points using deterministic modular sequences over a
-10,000 by 10,000 world. The clustered workload fills a 101 by 101 grid near the
+10000 by 10000 world. The clustered workload fills a 101 by 101 grid near the
 world center. Queries use square widths of 11 or 101 world units. The JSON file
 contains aggregate values for the five repetitions; the individual raw runs
 were not retained. Local host and executable paths were removed from its context.
 
-The table reports median wall-clock time for selected 10,000-entity cases.
+The table reports median wall-clock time for selected cases with 10000 entities.
 Times are in microseconds. The query result is an inclusive point-range query.
 
 | Operation | Distribution | Quadtree | Brute force |
@@ -38,10 +38,11 @@ and returns nearly every entity while the vector-based baseline scans
 contiguous data. The results do not support a general claim that the Quadtree
 is faster for every workload.
 
-These are five-run medians, not tail-latency percentiles. The harness does not
-measure memory consumption. It also does not benchmark simulation ticks,
-collision narrow-phase work, multiple machines, or concurrent workloads.
-Results may vary with compiler, machine load, and entity distribution.
+These are five-run medians and not tail-latency percentiles. The harness does
+not measure memory consumption. It also does not benchmark simulation ticks or
+collision narrow-phase work. Multiple machines and concurrent workloads are
+not covered. Results may vary with compiler and machine load plus entity
+distribution.
 
 ## Reproduce
 

@@ -1,51 +1,55 @@
 # AegisGuard
 
-AegisGuard is a C++20 server-authoritative game simulation under development.
-Clients provide movement intent; the server validates it and updates player
+AegisGuard is a C++20 authoritative game simulation under development.
+Clients provide movement intent. The server validates it and updates player
 state on a fixed timestep.
 
-**Status:** The simulation, spatial index and initial TLS game service are
-implemented. The service accepts TLS 1.3, authenticates a bounded session
-credential and sends validated movement intent into the fixed-tick simulation.
-Milestone 4 adds protocol-rule detection with test-only recommendations.
-Milestone 5 adds bounded in-memory replay sessions. Milestones 6 and 7 add an
-experimental, offline movement-statistics heuristic plus a seeded synthetic
-holdout evaluation. They do not use game data or affect server enforcement.
-Milestone 8 adds configured CI, CodeQL, Scorecard and source-SBOM workflows;
-they have not yet run on GitHub. Docker Compose is deferred because the
-repository has no runnable server executable. The latest historical full
-local runs passed 67/68 Release and 66/68 Debug tests. The current worktree
-builds. After fixing inconsistent MinGW Asio thread selection, the full
-70-test CTest suite passed 10/10 runs in both Debug and Release; three focused
-crash-prone tests also passed 20 repetitions each. This resolves the observed
-local test crash on this toolchain, but does not validate other platforms.
-There is no standalone game-server executable yet, so this is a buildable
-library with local integration tests, not a complete playable program. See the
+**Status:** The simulation and spatial index are implemented along with an
+initial TLS game service. The service accepts TLS 1.3 and authenticates a
+bounded session credential before forwarding validated movement intent to the
+fixed-tick simulation. Milestone 4 adds protocol-rule detection with test-only
+recommendations. Milestone 5 adds bounded in-memory replay sessions.
+Milestones 6 and 7 add an experimental offline movement-statistics heuristic
+and a seeded synthetic holdout evaluation. These features do not use game data
+or affect server enforcement.
+
+Milestone 8 adds CI with CodeQL and Scorecard plus source-SBOM workflows. They
+have not run on GitHub. Docker Compose is deferred because the repository has no
+runnable server executable. Earlier local runs passed 67/68 Release tests and
+66/68 Debug tests. The current worktree builds. After fixing inconsistent
+MinGW Asio thread selection the full 70-test CTest suite passed 10/10 runs in
+both Debug and Release. Three focused crash-prone tests also passed 20
+repetitions each. This resolves the observed local test crash on this
+toolchain but does not validate other platforms. There is no standalone
+game-server executable yet. This is a buildable library with local integration
+tests and is not a complete playable program. See the
 [requirements matrix](docs/requirements-matrix.md) and
 [known failures](docs/testing/KNOWN_FAILURES.md).
 
 ## Current implementation
 
-- A server-owned 2D world with configurable bounds, maximum speed, and fixed
+- A server-owned 2D world with configurable bounds and maximum speed on a fixed
   timestep.
-- Input validation for player identity, duplicate commands, finite values, and
-  movement limits.
+- Input validation for player identity and duplicate commands. It also checks
+  finite values and movement limits.
 - Atomic tick rejection: invalid input does not partially update state or
   advance the tick.
-- A dynamic Quadtree with insert, remove, update, and inclusive range queries.
+- A dynamic Quadtree with insert/remove/update operations and inclusive range
+  queries.
 - A seeded Quadtree test that checks random operations against a brute-force
   oracle.
 - Google Benchmark workloads for tree operations and brute-force queries.
-- A bounded version 1 movement frame, sequence guard, and token-bucket limiter.
-- A bounded session store with OpenSSL-generated credentials, expiry, revocation
-  and concurrent access protection.
-- An Asio listener that requires TLS 1.3, validates session credentials, limits
-  connections and input rates, rejects replayed frames, applies read deadlines
-  and feeds the simulation on its fixed tick.
-- A rule detector for out-of-range movement, replayed sequences and rate-limit
+- A bounded version 1 movement frame with a sequence guard and token-bucket
+  limiter.
+- A bounded session store with OpenSSL-generated credentials. It supports
+  expiry and revocation with concurrent access protection.
+- An Asio listener that requires TLS 1.3 and validates session credentials. It
+  limits connections and input rates. It rejects replayed frames and applies
+  read deadlines before feeding the simulation on its fixed tick.
+- A rule detector for out-of-range movement and replayed sequences plus rate-limit
   violations. Findings include a reason and rolling count. Recommendations can
-  escalate from review to throttle or disconnect, but the detector applies only
-  `observe`; existing protocol rejections remain in force.
+  escalate from review to throttle or disconnect. The detector applies only
+  `observe` and existing protocol rejections remain in force.
 - A bounded in-memory replay session that records accepted simulation inputs
   and validates the recorded ticks by replaying them from the initial state.
 - A versioned movement-feature extractor and configurable repeated-input
@@ -55,29 +59,32 @@ library with local integration tests, not a complete playable program. See the
 - A libFuzzer target for the untrusted movement-frame decoder. It is optional
   and has not yet been run in this Windows toolchain because Clang is absent.
 
-The simulation does not include collision handling, health changes or
-persistence. The Quadtree returns point-query candidates; it does not perform
-exact collision tests. Session issuance and player provisioning remain outside
+The simulation does not include collision handling or health changes. It also
+has no persistence. The Quadtree returns point-query candidates; it does not
+perform exact collision tests. Session issuance and player provisioning remain outside
 the network service. The service defaults to loopback and has no production
 certificate provisioning or key rotation workflow. Do not expose it to public
-traffic. See the [protocol documentation](docs/protocol.md), [architecture
-overview](docs/architecture/overview.md) and [threat model](docs/threat-model/stride.md)
-for its current boundaries.
+traffic. See the [protocol documentation](docs/protocol.md) and [architecture
+overview](docs/architecture/overview.md). The [threat model](docs/threat-model/stride.md)
+also describes the current boundaries.
 
-Rule scope, thresholds, evidence fields and evaluation limits are in the
+The rule scope and thresholds are documented with evidence fields and
+evaluation limits in the
 [rule detection notes](docs/detection/rule-detection.md).
-Feature definitions, the synthetic test results and their limits are in the
+Feature definitions and synthetic test results are documented with their
+limits in the
 [movement statistics notes](docs/detection/movement-statistics.md).
-Replay contents, bounds, retention and current limitations are in the
+Replay contents and bounds are documented with retention and current
+limitations in the
 [replay documentation](docs/telemetry/replay.md).
 
 ## Build and test
 
-Requirements: CMake 3.25 or newer, Ninja, Git, a C++20 compiler, standalone Asio,
-and OpenSSL 3.0 or newer with SSL and Crypto libraries. The first configure
-fetches GoogleTest 1.17.0.
+Requirements: CMake 3.25 or newer with Ninja and Git. You also need a C++20
+compiler plus standalone Asio and OpenSSL 3.0 or newer with SSL and Crypto
+libraries. The first configure fetches GoogleTest 1.17.0.
 
-For the MSYS2 UCRT64 toolchain used here, open an MSYS2 UCRT64 terminal and
+For the MSYS2 UCRT64 toolchain open an MSYS2 UCRT64 terminal and
 install the network and crypto development packages:
 
 ```bash
@@ -92,7 +99,7 @@ cmake --build build --parallel
 ctest --test-dir build --output-on-failure
 ```
 
-These commands were verified with CMake 4.4.4, Ninja 1.13.2, and MSYS2 GCC
+These commands were verified with CMake 4.4.4 and Ninja 1.13.2 on MSYS2 GCC
 15.2.0. A successful test run does not establish production readiness or
 detection accuracy.
 
@@ -107,17 +114,15 @@ python tools\evaluation\sanitize_benchmark_json.py build\spatial-raw.json benchm
 
 Google Benchmark 1.9.4 is fetched when benchmarks are enabled. The checked-in
 [benchmark report](docs/operations/spatial-benchmarks.md) describes the tested
-workloads and limitations. Its JSON output is saved under
+workloads and their limitations. Its JSON output is saved under
 [`benchmarks/results`](benchmarks/results).
 
 ## Build dependencies
 
 GoogleTest 1.17.0 is used for unit tests under its BSD 3-Clause license.
-Google Benchmark 1.9.4 is optional and uses Apache License 2.0. CMake fetches
+Google Benchmark 1.9.4 is optional under Apache License 2.0. CMake fetches
 these tagged releases into the ignored build directory. Standalone Asio 1.36.0
-uses Boost Software License 1.0. OpenSSL 3.6.1 uses Apache License 2.0. The
-repository also contains the requested Humanizer writing skill under its MIT
-license; it is development guidance, not a runtime dependency.
+uses Boost Software License 1.0. OpenSSL 3.6.1 uses Apache License 2.0.
 
 ## Testing and security evidence
 
@@ -128,13 +133,14 @@ license; it is development guidance, not a runtime dependency.
 - [Security requirements matrix](docs/security/requirements-verification.md)
 - [CI and software supply chain](docs/operations/ci-and-supply-chain.md)
 
-The TLS tests use an ephemeral self-signed certificate and disable certificate
-verification in the test client. They verify local service behavior, not
-certificate issuance or production trust configuration. The libFuzzer harness
-is configured for Clang on Linux or macOS; it has not been executed in the
+The TLS tests use an ephemeral self-signed certificate. The test client
+disables certificate verification. These tests verify local service behavior
+but not certificate issuance or production trust configuration. The libFuzzer
+harness is configured for Clang on Linux or macOS. It has not run in the
 current Windows environment. CodeQL and Scorecard workflows are configured
-but have not run remotely. ZAP, Trivy, Dependency-Check, Prometheus and
-OpenTelemetry remain deferred until their targets and supported inputs exist.
+but have not run remotely. ZAP and Trivy remain deferred. So do
+Dependency-Check and Prometheus. OpenTelemetry is also deferred until
+supported targets and inputs exist.
 
 ## Design and project status
 
@@ -147,6 +153,6 @@ OpenTelemetry remain deferred until their targets and supported inputs exist.
 - [Requirements and milestone gates](docs/requirements-matrix.md)
 
 There is no real-player evaluation data. The benchmark results describe only
-the checked-in synthetic workloads on one machine. Detection quality,
-false-positive rates, memory use, and operational security have not been
-measured.
+the checked-in synthetic workloads on one machine. Detection quality and
+false-positive rates have not been measured. Memory use and operational
+security have not been measured either.
