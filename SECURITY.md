@@ -12,5 +12,5 @@ vulnerability reporting for this repository when available. If it is
 unavailable, contact the maintainer through the GitHub profile.
 
 Reports should include the affected commit, configuration, reproduction steps
-against a local copy, and the impact. Do not include real credentials,
+against a local copy and the impact. Do not include real credentials,
 certificates or player data.

@@ -36,9 +36,9 @@ Third-party network edges are out of scope too because they are not implemented.
 | Spoofing | A caller impersonates another player or reuses an expired session. | TLS 1.3 protects transport. A bounded session store issues random credentials, binds them to server-supplied player IDs, expires them and supports revocation. The listener revalidates credentials for every frame and tick. Credential issuance and player provisioning remain outside the service. |
 | Tampering | A client submits a position, inventory, score, or hit result as trusted state. | Accept intent only; derive state and outcomes on the server; test state invariants and reject unauthorized fields. |
 | Repudiation | An enforcement action cannot be explained or reconstructed. | Protocol findings include a version, signal, reason and count and reach a caller callback. Persistent evidence, replay, access controls and account-level enforcement remain unimplemented. |
-| Information disclosure | Logs or exported evidence leak credentials or unnecessary personal data. | Never log secrets; minimize and pseudonymize fields; separate datasets; define access, retention, and deletion before collecting real telemetry. |
+| Information disclosure | Logs or exported evidence leak credentials or unnecessary personal data. | Never log secrets; minimize and pseudonymize fields; separate datasets; define access, retention and deletion before collecting real telemetry. |
 | Denial of service | Oversized messages, floods, slow handshakes or unbounded connections exhaust resources. | Fixed-size frames, a 128-connection default cap, authentication and frame deadlines, per-connection rate limits, bounded latest-intent storage and bounded TLS shutdown. Defaults need workload testing. |
-| Elevation of privilege | A player invokes admin actions or CI/deployment credentials are over-scoped. | Explicit authorization roles, least-privilege workflows and service accounts, protected secrets, and negative authorization tests. Operator/admin surfaces are not yet implemented. |
+| Elevation of privilege | A player invokes admin actions or CI/deployment credentials are over-scoped. | Explicit authorization roles, least-privilege workflows and service accounts, protected secrets and negative authorization tests. Operator/admin surfaces are not yet implemented. |
 
 ## Initial attack scenarios
 
