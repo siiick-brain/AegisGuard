@@ -171,6 +171,83 @@ TEST(MovementStatisticsTest, RejectsInvalidConfigurationAndFeatures) {
         MovementStatisticsError::invalid_features);
 }
 
+TEST(MovementStatisticsTest, RejectsEachInvalidFeatureField) {
+    const auto expect_invalid = [](auto update) {
+        MovementFeatures features;
+        features.player_id = 17;
+        features.sample_count = 20;
+        features.adjacent_pair_count = 19;
+        features.repeated_input_count = 10;
+        features.mean_magnitude = 0.5;
+        features.magnitude_standard_deviation = 0.1;
+        features.repeated_input_fraction = 10.0 / 19.0;
+        update(features);
+
+        EXPECT_EQ(
+            MovementStatisticsDetector{}.evaluate(features).error,
+            MovementStatisticsError::invalid_features);
+    };
+
+    expect_invalid([](MovementFeatures& features) {
+        features.schema_version += 1;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.player_id = 0;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.repeated_input_count = features.adjacent_pair_count + 1;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.sample_count = 0;
+        features.adjacent_pair_count = 1;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.adjacent_pair_count = features.sample_count;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.mean_magnitude = std::numeric_limits<double>::quiet_NaN();
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.mean_magnitude = -0.1;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.mean_magnitude = 1.1;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.magnitude_standard_deviation =
+            std::numeric_limits<double>::infinity();
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.magnitude_standard_deviation = -0.1;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.repeated_input_fraction =
+            std::numeric_limits<double>::quiet_NaN();
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.repeated_input_fraction = -0.1;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.repeated_input_fraction = 1.1;
+    });
+    expect_invalid([](MovementFeatures& features) {
+        features.repeated_input_fraction = 0.0;
+    });
+}
+
+TEST(MovementStatisticsTest, RejectsOutOfRangeConfigurationThresholds) {
+    MovementStatisticsConfig config;
+    config.repeated_input_fraction_threshold = 0.0;
+    EXPECT_THROW(
+        MovementStatisticsDetector detector(config),
+        std::invalid_argument);
+
+    config.repeated_input_fraction_threshold = 1.1;
+    EXPECT_THROW(
+        MovementStatisticsDetector detector(config),
+        std::invalid_argument);
+}
+
 TEST(MovementStatisticsTest, EmitsObserveOnlyFindingAtConfiguredThreshold) {
     MovementStatisticsConfig config;
     config.minimum_samples = 10;

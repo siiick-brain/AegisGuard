@@ -16,6 +16,46 @@ TEST(SimulationTest, RejectsInvalidConfiguration) {
     EXPECT_THROW(Simulation simulation(config), std::invalid_argument);
 }
 
+TEST(SimulationTest, RejectsEachInvalidConfigurationLimit) {
+    const auto expect_invalid = [](auto update) {
+        SimulationConfig config;
+        update(config);
+        EXPECT_THROW(Simulation simulation(config), std::invalid_argument);
+    };
+
+    expect_invalid([](SimulationConfig& config) {
+        config.world_width = 0.0;
+    });
+    expect_invalid([](SimulationConfig& config) {
+        config.world_height = std::numeric_limits<double>::infinity();
+    });
+    expect_invalid([](SimulationConfig& config) {
+        config.fixed_delta_seconds = 0.0;
+    });
+    expect_invalid([](SimulationConfig& config) {
+        config.max_speed = std::numeric_limits<double>::max();
+        config.fixed_delta_seconds = 2.0;
+    });
+    expect_invalid([](SimulationConfig& config) {
+        config.weapon_range = 0.0;
+    });
+    expect_invalid([](SimulationConfig& config) {
+        config.target_radius = 0.0;
+    });
+    expect_invalid([](SimulationConfig& config) {
+        config.weapon_damage = 0;
+    });
+    expect_invalid([](SimulationConfig& config) {
+        config.weapon_damage = kInitialPlayerHealth + 1;
+    });
+    expect_invalid([](SimulationConfig& config) {
+        config.maximum_rewind_ticks = 121;
+    });
+    expect_invalid([](SimulationConfig& config) {
+        config.respawn_delay_ticks = 0;
+    });
+}
+
 TEST(SimulationTest, AddsPlayersInsideWorldBounds) {
     Simulation simulation;
     EXPECT_EQ(simulation.add_player(1, {0.0, 100.0}), SimulationError::none);
