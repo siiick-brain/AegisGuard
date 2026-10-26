@@ -1,0 +1,192 @@
+[
+  {
+    "id": "M01",
+    "category": "speed",
+    "description": "Reject movement exactly at the speed boundary",
+    "file": "server/src/movement_anomaly.cpp",
+    "find": "if (distance > maximum_distance) {",
+    "replace": "if (distance >= maximum_distance) {",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^MovementAnomalyTest\\."
+  },
+  {
+    "id": "M02",
+    "category": "speed",
+    "description": "Remove configured latency and jitter allowance",
+    "file": "server/src/movement_anomaly.cpp",
+    "find": "const double maximum_distance = config_.maximum_speed *\n        (elapsed + config_.position_latency_grace_seconds) +\n        config_.position_jitter_tolerance;",
+    "replace": "const double maximum_distance = config_.maximum_speed * elapsed;",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^MovementAnomalyTest\\."
+  },
+  {
+    "id": "M03",
+    "category": "teleport",
+    "description": "Reject a position exactly at the teleport threshold",
+    "file": "server/src/movement_anomaly.cpp",
+    "find": "if (distance > config_.teleport_distance_threshold) {",
+    "replace": "if (distance >= config_.teleport_distance_threshold) {",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^MovementAnomalyTest\\."
+  },
+  {
+    "id": "M04",
+    "category": "teleport",
+    "description": "Disable teleport detection",
+    "file": "server/src/movement_anomaly.cpp",
+    "find": "if (distance > config_.teleport_distance_threshold) {",
+    "replace": "if (false) {",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^MovementAnomalyTest\\."
+  },
+  {
+    "id": "M05",
+    "category": "aim",
+    "description": "Reject aim changes exactly at the angular-rate boundary",
+    "file": "server/src/movement_anomaly.cpp",
+    "find": "if (aim_delta > maximum_aim_delta) {",
+    "replace": "if (aim_delta >= maximum_aim_delta) {",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^MovementAnomalyTest\\."
+  },
+  {
+    "id": "M06",
+    "category": "aim",
+    "description": "Remove configured aim latency grace",
+    "file": "server/src/movement_anomaly.cpp",
+    "find": "config_.maximum_aim_rate_radians_per_second *\n        (elapsed + config_.aim_latency_grace_seconds);",
+    "replace": "config_.maximum_aim_rate_radians_per_second * elapsed;",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^MovementAnomalyTest\\."
+  },
+  {
+    "id": "M07",
+    "category": "sequence guard",
+    "description": "Permit duplicate sequence numbers",
+    "file": "server/src/protocol.cpp",
+    "find": "if (sequence <= last_accepted_) {",
+    "replace": "if (sequence < last_accepted_) {",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^ProtocolTest\\.AcceptsOnlyStrictlyIncreasingSequences$"
+  },
+  {
+    "id": "M08",
+    "category": "sequence guard",
+    "description": "Permit sequence zero",
+    "file": "server/src/protocol.cpp",
+    "find": "if (sequence == 0) {",
+    "replace": "if (sequence == std::numeric_limits<std::uint64_t>::max()) {",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^ProtocolTest\\.(AcceptsOnlyStrictlyIncreasingSequences|AcceptsMaximumSequenceAndRejectsZero)$"
+  },
+  {
+    "id": "M09",
+    "category": "rate boundary",
+    "description": "Reject a bucket with exactly one available token",
+    "file": "server/src/protocol.cpp",
+    "find": "if (tokens_ < 1.0) {",
+    "replace": "if (tokens_ <= 1.0) {",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^ProtocolTest\\.EnforcesTokenBucketCapacityAndRefill$"
+  },
+  {
+    "id": "M10",
+    "category": "rate boundary",
+    "description": "Remove token-bucket refill capacity bound",
+    "file": "server/src/protocol.cpp",
+    "find": "tokens_ = std::min(capacity_, tokens_ + elapsed * tokens_per_second_);",
+    "replace": "tokens_ += elapsed * tokens_per_second_;",
+    "runner": "ctest",
+    "target": "aegisguard_simulation_tests",
+    "test": "^ProtocolTest\\.EnforcesTokenBucketCapacityAndRefill$"
+  },
+  {
+    "id": "M11",
+    "category": "authorization",
+    "description": "Reverse the status route certificate authorization condition",
+    "file": "server/src/main.cpp",
+    "find": "if (!client_certificate_valid_) {\n                respond(\"401 Unauthorized\", \"application/json\",",
+    "replace": "if (client_certificate_valid_) {\n                respond(\"401 Unauthorized\", \"application/json\",",
+    "runner": "python",
+    "target": "tests/python/test_server_smoke.py",
+    "test": "",
+    "buildTarget": "aegisguard_server"
+  },
+  {
+    "id": "M12",
+    "category": "authorization",
+    "description": "Reverse the metrics route certificate authorization condition",
+    "file": "server/src/main.cpp",
+    "find": "if (!client_certificate_valid_) {\n                respond(\"401 Unauthorized\", \"text/plain\",",
+    "replace": "if (client_certificate_valid_) {\n                respond(\"401 Unauthorized\", \"text/plain\",",
+    "runner": "python",
+    "target": "tests/python/test_server_smoke.py",
+    "test": "",
+    "buildTarget": "aegisguard_server"
+  },
+  {
+    "id": "M13",
+    "category": "authorization",
+    "description": "Accept invalid client certificate verification results",
+    "file": "server/src/main.cpp",
+    "find": "SSL_get_verify_result(\n                        self->stream_.native_handle()) == X509_V_OK;",
+    "replace": "SSL_get_verify_result(\n                        self->stream_.native_handle()) != X509_V_OK;",
+    "runner": "python",
+    "target": "tests/python/test_server_smoke.py",
+    "test": "",
+    "buildTarget": "aegisguard_server"
+  },
+  {
+    "id": "M14",
+    "category": "evidence verification",
+    "description": "Retain host name in sanitized benchmark evidence",
+    "file": "tools/evaluation/sanitize_benchmark_json.py",
+    "find": "context.pop(\"host_name\", None)",
+    "replace": "context.get(\"host_name\")",
+    "runner": "python",
+    "target": "tests/python/test_sanitize_benchmark_json.py",
+    "test": ""
+  },
+  {
+    "id": "M15",
+    "category": "evidence verification",
+    "description": "Retain the local executable path in sanitized evidence",
+    "file": "tools/evaluation/sanitize_benchmark_json.py",
+    "find": "context[\"executable\"] = \"aegisguard_spatial_benchmarks\"",
+    "replace": "context.setdefault(\"executable\", \"aegisguard_spatial_benchmarks\")",
+    "runner": "python",
+    "target": "tests/python/test_sanitize_benchmark_json.py",
+    "test": ""
+  },
+  {
+    "id": "M16",
+    "category": "evidence verification",
+    "description": "Accept malformed benchmark evidence structure",
+    "file": "tools/evaluation/sanitize_benchmark_json.py",
+    "find": "if not isinstance(report, dict) or not isinstance(report.get(\"context\"), dict):",
+    "replace": "if False:",
+    "runner": "python",
+    "target": "tests/python/test_sanitize_benchmark_json.py",
+    "test": ""
+  },
+  {
+    "id": "M17",
+    "category": "evidence verification",
+    "description": "Accept evidence without a benchmark results list",
+    "file": "tools/evaluation/sanitize_benchmark_json.py",
+    "find": "if not isinstance(report.get(\"benchmarks\"), list):",
+    "replace": "if False:",
+    "runner": "python",
+    "target": "tests/python/test_sanitize_benchmark_json.py",
+    "test": ""
+  }
+]

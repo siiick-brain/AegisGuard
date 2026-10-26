@@ -17,6 +17,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <future>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
@@ -408,6 +409,99 @@ TEST(NetworkServiceConfigTest, RequiresDetectionHandlerToAvoidDroppingFindings) 
                 io_context, tls_context, sessions, simulation, std::move(config)),
             std::invalid_argument);
     }
+}
+
+TEST(NetworkServiceConfigTest, RejectsInvalidServiceLimitsAndDependencies) {
+    auto io_context = std::make_shared<asio::io_context>();
+    auto tls_context = std::make_shared<asio::ssl::context>(
+        asio::ssl::context::tls_server);
+    SessionStore sessions;
+    Simulation simulation;
+
+    const auto valid_config = [] {
+        NetworkServiceConfig config;
+        config.on_error = [](std::error_code) {};
+        config.on_detection = [](const RuleFinding&) {};
+        return config;
+    };
+    const auto reject = [&](NetworkServiceConfig config) {
+        EXPECT_THROW(
+            NetworkService service(
+                io_context, tls_context, sessions, simulation, config),
+            std::invalid_argument);
+    };
+    const auto reject_config = [&](std::string_view label, auto mutate) {
+        SCOPED_TRACE(label);
+        auto config = valid_config();
+        mutate(config);
+        reject(config);
+    };
+
+    reject_config("maximum connections", [](NetworkServiceConfig& config) {
+        config.maximum_connections = 0;
+    });
+    reject_config("authentication timeout", [](NetworkServiceConfig& config) {
+        config.authentication_timeout = 0ms;
+    });
+    reject_config("frame timeout", [](NetworkServiceConfig& config) {
+        config.frame_timeout = 0ms;
+    });
+    reject_config("NaN movement rate capacity", [](NetworkServiceConfig& config) {
+        config.movement_rate_capacity =
+            std::numeric_limits<double>::quiet_NaN();
+    });
+    reject_config("movement rate capacity", [](NetworkServiceConfig& config) {
+        config.movement_rate_capacity = 0.5;
+    });
+    reject_config("movement rate", [](NetworkServiceConfig& config) {
+        config.movement_rate_per_second = 0.0;
+    });
+    reject_config("IP rate capacity", [](NetworkServiceConfig& config) {
+        config.ip_rate_capacity = 0.5;
+    });
+    reject_config("IP rate", [](NetworkServiceConfig& config) {
+        config.ip_rate_per_second = 0.0;
+    });
+    reject_config("tracked IP lower bound", [](NetworkServiceConfig& config) {
+        config.maximum_tracked_ip_rates = 0;
+    });
+    reject_config("tracked IP upper bound", [](NetworkServiceConfig& config) {
+        config.maximum_tracked_ip_rates =
+            std::numeric_limits<std::size_t>::max();
+    });
+    reject_config("queued intent lower bound", [](NetworkServiceConfig& config) {
+        config.maximum_queued_intents_per_player = 0;
+    });
+    reject_config("queued intent upper bound", [](NetworkServiceConfig& config) {
+        config.maximum_queued_intents_per_player = 1025;
+    });
+    reject_config("missing error handler", [](NetworkServiceConfig& config) {
+        config.on_error = {};
+    });
+
+    auto missing_detection_handler = valid_config();
+    missing_detection_handler.on_detection = {};
+    reject(missing_detection_handler);
+
+    const auto config = valid_config();
+    EXPECT_THROW(
+        NetworkService service(
+            std::shared_ptr<asio::io_context>{}, tls_context, sessions,
+            simulation, config),
+        std::invalid_argument);
+    EXPECT_THROW(
+        NetworkService service(
+            io_context, std::shared_ptr<asio::ssl::context>{}, sessions,
+            simulation, config),
+        std::invalid_argument);
+
+    SimulationConfig tiny_tick_config;
+    tiny_tick_config.fixed_delta_seconds = 1e-20;
+    Simulation tiny_tick_simulation(tiny_tick_config);
+    EXPECT_THROW(
+        NetworkService service(
+            io_context, tls_context, sessions, tiny_tick_simulation, config),
+        std::invalid_argument);
 }
 
 TEST_F(NetworkServiceTest, AuthenticatedMovementUsesServerFixedTicks) {
@@ -819,8 +913,8 @@ TEST_F(NetworkServiceIpRateTest, PerIpRateLimitSurvivesReconnect) {
     const auto move_x = make_frame(1, 1000, 0);
     const auto move_y = make_frame(2, 0, 1000);
     asio::write(first, asio::buffer(move_x));
-    asio::write(first, asio::buffer(move_y));
     ASSERT_TRUE(wait_for_player_velocity_x(5.0));
+    asio::write(first, asio::buffer(move_y));
     ASSERT_TRUE(wait_for_player_velocity_y(5.0));
 
     asio::error_code close_error;
@@ -868,9 +962,8 @@ TEST_F(NetworkServiceTest, StopsDuringHandshakeWithoutStartingTlsShutdown) {
 
     service_->stop();
 
-    EXPECT_THROW(
-        client.handshake(asio::ssl::stream_base::client),
-        asio::system_error);
+    EXPECT_TRUE(wait_for_lifecycle_event("handshake finished with error"));
+    EXPECT_TRUE(wait_for_lifecycle_event("session destroyed"));
     {
         std::lock_guard lock(lifecycle_mutex_);
         EXPECT_EQ(
