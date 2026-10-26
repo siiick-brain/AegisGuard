@@ -12,12 +12,20 @@ Use CMake 3.25 or newer, Ninja, a C++20 compiler, standalone Asio and OpenSSL
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build --parallel 2
 ctest --test-dir build --output-on-failure
-python -m unittest discover -s tests/python -p "test_*.py"
+python -m pytest -q tests/python
+python -m ruff check .
+python -m mypy tools
 ```
 
 Run the focused tests for changed behavior, then the full suite. Preserve valid
 tests and add a regression test when fixing a bug. State any checks that were
 not run.
+
+## Pull requests
+
+Use the pull request template. Explain the behavior change and list the
+commands run plus any checks not run. Keep changes focused and avoid including
+unrelated generated files.
 
 ## Changes
 
