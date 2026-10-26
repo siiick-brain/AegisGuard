@@ -59,6 +59,6 @@ or wait in place. The heuristic can therefore flag ordinary behavior. It does
 not account for game mode or player intent. It also ignores input device
 latency and match context. The project has no playable game or real-player
 traces. It has no validated labels or calibration study. Treat findings as a
-prompt for review and not as evidence of cheating. Live-service integration
+recommendation for review and not as evidence of cheating. Live-service integration
 and enforcement remain deferred until a game supplies suitable events and
 validation data.

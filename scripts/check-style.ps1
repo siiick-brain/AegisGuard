@@ -17,7 +17,6 @@ $files = @(
 )
 foreach ($privatePath in @(
     "private/PROGRESS.md",
-    "private/skills-and-tools.md",
     "scripts/hooks/commit-msg"
 )) {
     if ((Test-Path -LiteralPath $privatePath -PathType Leaf) -and

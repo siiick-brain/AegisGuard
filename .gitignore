@@ -29,4 +29,13 @@ tokens*
 /private/
 /secrets/
 /.agents/
+/.claude/
+/.cursor/
+/.windsurf/
+/.continue/
 /skills/
+/prompts/
+/CLAUDE.md
+/AGENTS.md
+/GEMINI.md
+/.github/copilot-instructions.md
