@@ -78,6 +78,7 @@ Run the C++ and Python test suites plus the Python linters:
 
 ```powershell
 ctest --test-dir build --output-on-failure --no-tests=error
+$env:AEGISGUARD_BUILD_DIR = (Resolve-Path .\build).Path
 python -m pytest -q tests/python
 python -m ruff check .
 python -m mypy tools
