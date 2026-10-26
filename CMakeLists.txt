@@ -18,11 +18,16 @@ include(CTest)
 
 option(AG_BUILD_BENCHMARKS "Build spatial-engine benchmarks" OFF)
 option(AG_BUILD_FUZZERS "Build libFuzzer targets (Clang on Linux/macOS)" OFF)
-option(AG_ENABLE_COVERAGE "Enable gcov-compatible coverage instrumentation" OFF)
+option(AEGIS_COVERAGE "Enable gcov-compatible coverage instrumentation" OFF)
+option(AG_ENABLE_COVERAGE "Compatibility alias for AEGIS_COVERAGE" OFF)
 
 if(AG_ENABLE_COVERAGE)
+    set(AEGIS_COVERAGE ON)
+endif()
+
+if(AEGIS_COVERAGE)
     if(NOT CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-        message(FATAL_ERROR "AG_ENABLE_COVERAGE requires GCC/gcov")
+        message(FATAL_ERROR "AEGIS_COVERAGE requires GCC/gcov")
     endif()
     add_compile_options(--coverage -O0 -g)
     add_link_options(--coverage)
