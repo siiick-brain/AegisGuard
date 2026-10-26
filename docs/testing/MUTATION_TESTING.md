@@ -3,7 +3,7 @@
 ## Command and method
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\mutation-test.ps1 -BuildDir build-cov-local
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File scripts\mutation-test.ps1 -BuildDir build-audit-debug
 ```
 
 The runner applies each exact-text mutation separately, builds its target,
