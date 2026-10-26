@@ -1,13 +1,14 @@
 # AegisGuard
 
 AegisGuard is a C++20 authoritative game simulation under development.
-Clients provide movement intent. The server validates it and updates player
-state on a fixed timestep.
+Clients provide movement and FIRE intents. The server validates them and
+updates player state on a fixed timestep.
 
 **Status:** The simulation and spatial index are implemented along with an
 initial TLS game service and a separate HTTPS status listener. The game service
 accepts TLS 1.3 and authenticates a bounded session credential before
-forwarding validated movement and FIRE intents to the fixed-tick simulation.
+forwarding validated movement intents to the fixed-tick simulation; FIRE is
+validated against server-owned state and history on the service strand.
 The HTTPS listener exposes a public health check and mTLS-protected status and
 metrics routes. Server output uses JSON Lines and excludes credential and key
 material.
@@ -23,7 +24,7 @@ build/test jobs and generated a source SBOM in Release. Its commit was
 skills-demo job. The latest CodeQL result upload and Scorecard analysis failed.
 CodeQL and Scorecard are **Not verified while the repository is private**.
 These remote runs predate the current local worktree. The latest local run
-passed 118/118 CTest tests and 28 Python tests with two subtests. The MinGW
+passed 125/125 CTest tests and 28 Python tests with two subtests. The MinGW
 Asio thread-selection correction also passed repeated Debug and Release
 suites. This resolves the observed local test crash on this toolchain but does
 not validate other platforms. A standalone server executable and loopback
@@ -70,18 +71,19 @@ lifecycle. See the
   no-new-privileges and an explicit seccomp profile. Container and Trivy
   checks are configured. No container job appeared in the latest remote CI
   run; local Docker checks are blocked because Docker is unavailable.
-- A rule detector for out-of-range movement and replayed sequences plus rate-limit
-  violations. Findings include a reason and rolling count. Recommendations can
-  escalate from review to throttle or disconnect. The detector applies only
-  `observe` and existing protocol rejections remain in force.
+- A rule detector for eight protocol, movement and rate-limit signal types.
+  Findings include a reason and rolling count. Recommendations can escalate
+  from review to throttle or disconnect. The detector applies only `observe`;
+  existing protocol rejections and connection closures remain in force.
 - A bounded in-memory replay session that records accepted simulation inputs
   and validates the recorded ticks by replaying them from the initial state.
 - A versioned movement-feature extractor and configurable repeated-input
   heuristic for offline replay analysis. Seeded synthetic traces exercise a
   disjoint holdout set. Findings remain observe-only; real gameplay has not
   been evaluated.
-- A libFuzzer target for the untrusted movement-frame decoder. It is optional
-  and has not yet been run in this Windows toolchain because Clang is absent.
+- Three optional libFuzzer targets cover protocol frame and HELLO decoding plus
+  configuration parsing. Clang is absent from this Windows toolchain; a
+  bounded Ubuntu CI smoke job is configured but has not yet run.
 
 The simulation has no general-purpose collision system or persistence. FIRE
 hit validation uses Quadtree candidates followed by an exact ray-to-target

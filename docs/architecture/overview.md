@@ -13,12 +13,14 @@ telemetry and deployment services have not started.
 
 ```text
  Untrusted game client
-   | input intent only; bounded, versioned framing implemented
+   | bounded, versioned movement and FIRE intents
    v
  [Network/session service: TLS 1.3 listener implemented]
-   | accepted movement intent      | replay, rate and movement violations
+   | accepted intents              | replay, rate and movement violations
    v                               v
  [Authoritative simulation]  [Rule detection: protocol violations implemented]
+   | server-owned movement, health, hit validation,
+   | bounded rewind, death and respawn
    |                               |
    v                               +----> [Evidence and telemetry boundary]
  [Spatial index]                             |
@@ -33,10 +35,10 @@ telemetry and deployment services have not started.
 
 ## Design principles
 
-1. The server owns player positions and velocities and derives them from
-   validated movement intent. `PlayerState` also has a health field, but health
-   changes, inventory, cooldowns, hit registration and match outcomes are not
-   implemented.
+1. The server owns player positions, velocities and health. It derives
+   movement from validated intent and validates FIRE against server-recorded
+   positions before applying damage, death and timed respawn. Inventory,
+   weapon cooldowns, match scoring and match outcomes are not implemented.
 2. Deterministic validation is on the authoritative path. The availability of
    statistical or ML detection must not affect action validity.
 3. Every untrusted-input path will be bounded by bytes and work. Queueing and
@@ -52,11 +54,14 @@ telemetry and deployment services have not started.
 
 ## Initial scope and deferred decisions
 
-The simulation library owns player positions and velocities in a bounded 2D
-world. Clients submit movement intent. Each accepted tick applies a fixed
-time step. Invalid input rejects the whole tick without mutating player state.
-GoogleTest covers configuration and input validation. It also tests movement
-and world bounds.
+The simulation library owns player positions, velocities and health in a
+bounded 2D world. Clients submit movement and FIRE intents. Each accepted
+movement tick applies a fixed time step. Invalid input rejects the whole tick
+without mutating player state. FIRE uses bounded server history and
+server-validated hit testing; death and timed respawn are implemented.
+GoogleTest covers configuration, input validation, movement, world bounds,
+firing, rewind and respawn. Static arena collision, shot occlusion, weapon
+cooldowns and match outcomes remain deferred.
 
 The spatial module contains a dynamic point Quadtree with insert and remove
 operations. It supports updates and inclusive range queries plus subtree
@@ -70,8 +75,10 @@ that query cost depends on density and query size.
 
 The network service terminates TLS 1.3 and validates credentials against the
 bounded session store. It enforces per-connection sequences and rate limits.
-It then stores the latest movement intent for each connected player. The simulation
-consumes these inputs on its fixed timestep. The service uses one Asio strand;
+It queues movement intents for each connected player; the simulation consumes
+them on its fixed timestep. FIRE intents are validated against server-owned
+simulation state and bounded position history on the same service strand. The
+service uses one Asio strand;
 the simulation must not be accessed concurrently while the service is running.
 The service and each connection share ownership of the `io_context` and TLS
 context. Each asynchronous operation retains its connection until its handler
@@ -94,9 +101,9 @@ or credential issuance flow. Client state replication is also absent. Its
 configured connection and deadline defaults are provisional. The rate defaults
 are not load-tested capacity claims.
 
-The rule detector observes authenticated movement-range violations and replayed
-sequences plus rate-limit violations. It emits versioned findings with reasons
-and test-only escalating recommendations. It does not change simulation
+The rule detector observes eight authenticated protocol, movement and
+rate-limit signal categories. It emits versioned findings with reasons and
+test-only escalating recommendations. It does not change simulation
 validation or apply account-level penalties. See the
 [rule detection notes](../detection/rule-detection.md).
 

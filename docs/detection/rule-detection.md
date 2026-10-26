@@ -2,8 +2,9 @@
 
 ## Scope
 
-The current server exposes movement intent and basic session controls. The
-detector records eight violation types the server can verify directly:
+The current server accepts movement and FIRE intents and exposes basic session
+controls. The detector records eight protocol, movement and rate-limit signal
+types the server can verify directly:
 
 | Signal | Evidence |
 |---|---|

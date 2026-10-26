@@ -20,9 +20,11 @@ web tests do not apply to it.
 
 ## Results
 
-The current worktree registers 121 CTest cases. The latest local CTest run
-passed 121/121 and the Python suite passed 14/14. Trusted and untrusted client
-certificates were both checked by the server smoke test. The earlier MinGW Asio
+The current worktree registers 125 CTest cases. The latest complete Debug and
+Release CTest runs passed 125/125. Standalone Python unittest discovery passed
+14/14, and the CTest pytest suite passed 28 tests and two subtests. Trusted and
+untrusted client certificates were both checked by the server smoke test. The
+earlier MinGW Asio
 thread-backend mismatch and its repeated Debug/Release test evidence are
 recorded in
 [known failures](../testing/KNOWN_FAILURES.md). These tests verify the listed
