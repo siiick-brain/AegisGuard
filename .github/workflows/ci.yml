@@ -10,6 +10,53 @@ permissions:
   contents: read
 
 jobs:
+  coverage:
+    name: Core line and branch coverage
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libasio-dev \
+            libssl-dev \
+            ninja-build
+
+      - name: Install Python development dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+
+      - name: Configure coverage build
+        run: >-
+          cmake -S . -B build-coverage -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DAEGIS_COVERAGE=ON
+          -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
+
+      - name: Build coverage targets
+        run: cmake --build build-coverage --parallel 2
+
+      - name: Run tests
+        run: ctest --test-dir build-coverage --output-on-failure --no-tests=error
+
+      - name: Enforce core coverage thresholds
+        run: |
+          .venv/bin/python -m gcovr -r . build-coverage \
+            --exclude 'tests/.*' \
+            --filter 'server/src/.*' \
+            --exclude 'server/src/main.cpp' \
+            --exclude 'server/src/server_config.cpp' \
+            --exclude-throw-branches \
+            --fail-under-line 90 \
+            --fail-under-branch 80
+
   build-and-test:
     name: ${{ matrix.build_type }} build and tests
     runs-on: ubuntu-24.04
@@ -32,10 +79,18 @@ jobs:
             libssl-dev \
             ninja-build
 
+      - name: Install Python development dependencies
+        run: |
+          python3 -m venv .venv
+          .venv/bin/python -m pip install -r requirements-dev.txt
+
       - name: Configure C++
         env:
           BUILD_TYPE: ${{ matrix.build_type }}
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE="$BUILD_TYPE"
+          -DPython3_EXECUTABLE="$GITHUB_WORKSPACE/.venv/bin/python"
 
       - name: Build C++
         run: cmake --build build --parallel 2
@@ -44,7 +99,9 @@ jobs:
         run: ctest --test-dir build --output-on-failure --no-tests=error
 
       - name: Run Python tests
-        run: python3 -m unittest discover -s tests/python -p "test_*.py"
+        env:
+          AEGISGUARD_BUILD_DIR: build
+        run: .venv/bin/python -m unittest discover -s tests/python -p "test_*.py"
 
       - name: Create source SBOM
         if: matrix.build_type == 'Release'
@@ -55,3 +112,61 @@ jobs:
           output-file: aegisguard-source-sbom.cdx.json
           artifact-name: aegisguard-source-sbom
           upload-artifact-retention: 30
+
+  fuzz-smoke:
+    name: Clang libFuzzer smoke tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install fuzz build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            clang \
+            libasio-dev \
+            libssl-dev \
+            ninja-build
+
+      - name: Verify Clang toolchain
+        run: clang++ --version
+
+      - name: Configure fuzz targets
+        run: >-
+          cmake -S . -B build-fuzz -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_COMPILER=clang++
+          -DAG_BUILD_FUZZERS=ON
+          -DBUILD_TESTING=OFF
+
+      - name: Build fuzz targets
+        run: >-
+          cmake --build build-fuzz --parallel 2 --target
+          aegisguard_fuzz_decoder
+          aegisguard_fuzz_hello
+          aegisguard_fuzz_config
+
+      - name: Run bounded fuzz smoke tests
+        run: |
+          mkdir -p artifacts/fuzz
+          ./build-fuzz/aegisguard_fuzz_decoder tests/fuzz/regression \
+            -max_len=4096 -max_total_time=15 \
+            -artifact_prefix=artifacts/fuzz/decoder-
+          ./build-fuzz/aegisguard_fuzz_hello tests/fuzz/regression \
+            -max_len=4096 -max_total_time=15 \
+            -artifact_prefix=artifacts/fuzz/hello-
+          ./build-fuzz/aegisguard_fuzz_config tests/fuzz/regression \
+            -max_len=65536 -max_total_time=15 \
+            -artifact_prefix=artifacts/fuzz/config-
+
+      - name: Retain fuzz artifacts
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: libfuzzer-artifacts
+          path: artifacts/fuzz/
+          if-no-files-found: ignore
