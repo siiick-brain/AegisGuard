@@ -107,8 +107,14 @@ Captured from `scripts/run-scenarios.ps1` on the checked-in test build:
 
 ```text
 Running six existing server-authority scenarios.
+1/6 Test  #52: NetworkServiceTest.ForgedPositionRejected ...........................   Passed    0.37 sec
+2/6 Test  #53: NetworkServiceTest.SpeedCheatRejected ...............................   Passed    0.20 sec
+3/6 Test  #54: NetworkServiceTest.TeleportCheatRejected ............................   Passed    0.22 sec
+4/6 Test  #55: NetworkServiceTest.AimSnapCheatRejected .............................   Passed    0.17 sec
+5/6 Test #113: SimulationTest.FireDamagesTheNearestServerOwnedTarget ...............   Passed    0.04 sec
+6/6 Test #117: SimulationTest.RespawnsEliminatedPlayerAtItsServerOwnedSpawnPoint ...   Passed    0.06 sec
 100% tests passed, 0 tests failed out of 6
-Total Test time (real) =   4.80 sec
+Total Test time (real) =   1.32 sec
 ```
 
 ## Spatial benchmark
